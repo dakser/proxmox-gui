@@ -59,7 +59,7 @@ trap 'rm -f "$tmp"' EXIT
 sed "s|__SITE_ADDR__|${SITE}|" "$TEMPLATE" >"$tmp"
 if grep -q '__SITE_ADDR__' "$tmp"; then echo "ERROR: placeholder left in rendered Caddyfile" >&2; exit 1; fi
 if command -v caddy >/dev/null 2>&1; then
-    caddy validate --config "$tmp" --adapter caddyfile >/dev/null 2>&1 \
+    caddy validate --config "$tmp" --adapter caddyfile >&2 \
         || { echo "ERROR: rendered Caddyfile failed 'caddy validate'; keeping the previous one" >&2; exit 1; }
 fi
 chmod 0644 "$tmp"
