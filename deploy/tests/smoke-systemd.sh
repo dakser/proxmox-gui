@@ -124,10 +124,11 @@ check_eq "a foreign Host header is refused by the API itself" "400" "curl -sS --
 check_not "a foreign Host header is not served the app through Caddy" "curl -ksS --max-time 10 -H 'Host: evil.example' https://$IP/api/v1/health | grep -q '\"status\":\"ok\"'"
 check_eq "API docs are off (docs)" "404" "curl -ksS -o /dev/null -w '%{http_code}' https://$IP/api/docs"
 check_eq "API docs are off (openapi.json)" "404" "curl -ksS -o /dev/null -w '%{http_code}' https://$IP/api/openapi.json"
-check_eq "the frontend serves /login" "200" "curl -ksS -o /dev/null -w '%{http_code}' https://$IP/login"
-check_contains "CSP uses a nonce" "'nonce-" "curl -ksSI https://$IP/login | tr -d '\r' | grep -i '^content-security-policy'"
-check_not "CSP has no 'unsafe-inline' in script-src" "curl -ksSI https://$IP/login | tr -d '\r' | grep -i '^content-security-policy' | grep -Eo \"script-src[^;]*\" | grep -q unsafe-inline"
-check_contains "HSTS header present" "Strict-Transport-Security" "curl -ksSI https://$IP/login | tr -d '\r'"
+# Before the wizard has run, /login redirects (303) to /setup; follow it to the page that is served.
+check_eq "the frontend serves the UI (following the wizard redirect)" "200" "curl -ksS -L -o /dev/null -w '%{http_code}' https://$IP/login"
+check_contains "CSP uses a nonce" "'nonce-" "curl -ksS -L -D - -o /dev/null https://$IP/login | tr -d '\r' | grep -i '^content-security-policy'"
+check_not "CSP has no 'unsafe-inline' in script-src" "curl -ksS -L -D - -o /dev/null https://$IP/login | tr -d '\r' | grep -i '^content-security-policy' | grep -Eo \"script-src[^;]*\" | grep -q unsafe-inline"
+check_contains "HSTS header present" "Strict-Transport-Security" "curl -ksS -L -D - -o /dev/null https://$IP/login | tr -d '\r'"
 check_contains "API responses carry the locked-down CSP" "default-src 'none'" "curl -ksSI https://$IP/api/v1/health | tr -d '\r'"
 
 echo "-- first-run wizard requires the setup token"
