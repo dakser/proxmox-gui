@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 
 from arq import cron, func
-from arq.connections import RedisSettings
 
 from app.clusters.probe import probe_clusters
 from app.jobs.backup_functions import run_backup, run_backup_delete, run_restore
@@ -41,6 +40,7 @@ from app.jobs.provisioning_functions import (
     run_download,
 )
 from app.jobs.reaper import reap_orphans
+from app.jobs.redis_conf import arq_redis_settings, job_deserializer, job_serializer
 from app.jobs.resize_functions import run_resize
 from app.jobs.retention_cron import roll_audit_log
 from app.jobs.selfupdate_functions import run_self_update
@@ -169,7 +169,9 @@ class WorkerSettings:
     ]
     on_startup = on_startup
     on_shutdown = on_shutdown
-    redis_settings = RedisSettings(host="127.0.0.1", port=6379, database=0)
+    redis_settings = arq_redis_settings()
+    job_serializer = job_serializer
+    job_deserializer = job_deserializer
     max_jobs = 6
     job_timeout = 14400  # 4h ceiling; per-func timeouts override.
     keep_result = 3600  # arq's own result-key TTL (DB row is the truth).

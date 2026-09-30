@@ -168,7 +168,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   lockfile no está desactualizado.
 - [x] **P3-07 Token de setup.** El bootstrap genera `/etc/proxmox-gui/setup-token` (`root:proxmox-gui` 0440, 32 bytes aleatorios en
   urlsafe). Implementación del lado app en P5-01.
-- [ ] **P3-08 Redis.** Socket Unix (`port 0`, `unixsocket`, `unixsocketperm 660`, usuario `proxmox-gui` en el grupo `redis`) si arq lo
+- [x] **P3-08 Redis.** Socket Unix (`port 0`, `unixsocket`, `unixsocketperm 660`, usuario `proxmox-gui` en el grupo `redis`) si arq lo
   soporta; si no, `requirepass` desde archivo 0440. Verificar en el código de arq 0.26.3 qué opciones admite `RedisSettings`
   antes de decidir. Configuración persistente en un drop-in propio, no editando `/etc/redis/redis.conf` con `echo >>`.
 - [x] **P3-09 Unidades systemd endurecidas.** Para API/worker: `ProtectSystem=strict`, `ReadWritePaths=/var/lib/proxmox-gui`,
@@ -216,7 +216,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [ ] **P5-01 Token de setup en la API.** `POST /api/v1/setup/admin` exige `X-Setup-Token`; comparación con `hmac.compare_digest`;
   límite de tasa; sin fuga de información en errores; `GET /setup/status` indica `token_required` pero nada más. El wizard del
   frontend añade el paso del token. Tests en `test_setup.py`: sin token, token erróneo, token correcto, tras crear admin → 409.
-- [ ] **P5-02 Redis/arq.** Configurar `RedisSettings` según P3-08 y fijar `job_serializer`/`job_deserializer` JSON tanto al encolar
+- [x] **P5-02 Redis/arq.** Configurar `RedisSettings` según P3-08 y fijar `job_serializer`/`job_deserializer` JSON tanto al encolar
   (`main.py`) como en `WorkerSettings`. Comprobar que ningún argumento encolado necesita pickle (fechas, bytes, modelos) y adaptarlo.
   *Aceptación:* `test_jobs_infrastructure.py` verde + test de ida y vuelta JSON.
 - [ ] **P5-03 Origin en WebSockets.** Validar `Origin` contra una lista (`Settings.allowed_origins`, por defecto el host de la petición)

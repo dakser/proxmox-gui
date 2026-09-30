@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     ssh_key_path: Path = Path("/etc/proxmox-gui/gui_ed25519")
     ssh_known_hosts_path: Path = Path("/var/lib/proxmox-gui/ssh/known_hosts")
 
+    # Redis (arq). Production: unix socket path set by the systemd units; unset = loopback TCP.
+    redis_socket: str | None = None
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False

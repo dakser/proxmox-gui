@@ -105,12 +105,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.jobs_event_pump_task = None
     try:
         from arq import create_pool
-        from arq.connections import RedisSettings
 
+        from app.jobs import redis_conf
         from app.jobs.events import jobs_event_pump
 
         app.state.arq_pool = await create_pool(
-            RedisSettings(host="127.0.0.1", port=6379, database=0)
+            redis_conf.arq_redis_settings(),
+            job_serializer=redis_conf.job_serializer,
+            job_deserializer=redis_conf.job_deserializer,
         )
         app.state.jobs_event_pump_task = asyncio.create_task(
             jobs_event_pump(app), name="jobs-event-pump"
