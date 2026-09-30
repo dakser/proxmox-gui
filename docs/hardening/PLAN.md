@@ -41,32 +41,32 @@ Estas decisiones se toman ya para que la ejecución sea autónoma. Cada una se c
 
 Meta: saber qué funciona **antes** de cambiar nada, y poder verificar los scripts de root sin un PVE real.
 
-- [ ] **P0-01 Entorno.** Confirmar remoto `origin` = tu fork y crear rama `hardening/main`. Preparar Python 3.12
+- [x] **P0-01 Entorno.** Confirmar remoto `origin` = tu fork y crear rama `hardening/main`. Preparar Python 3.12
   (`uv python install 3.12`, o `docker run python:3.12` si `uv` no llega a GitHub), Node 22 y `pnpm`.
   Instalar herramientas: `ruff`, `mypy`, `pytest`, `bandit`, `pip-audit`, `shellcheck` (`pip install shellcheck-py`
   si no hay binario), `gitleaks` (binario o `pip install detect-secrets` como alternativa).
   *Aceptación:* `python3.12 --version`, `node --version`, `shellcheck --version` responden. Anotar versiones en `LOG.md`.
-- [ ] **P0-02 Línea base de tests.** Ejecutar `cd backend && pytest -q` y `cd frontend && pnpm install --frozen-lockfile &&
+- [x] **P0-02 Línea base de tests.** Ejecutar `cd backend && pytest -q` y `cd frontend && pnpm install --frozen-lockfile &&
   pnpm test` (y `pnpm lint`/`pnpm check` si existen en `package.json`). Guardar el resultado en `docs/hardening/BASELINE.md`
   (pasan/fallan, tiempo, comando exacto). Los tests que ya fallan en la línea base se listan aparte y **no** se cuentan
   como regresión.
   *Aceptación:* `BASELINE.md` existe con cifras reales.
-- [ ] **P0-03 Escaneos iniciales.** `gitleaks` sobre todo el historial y `.planning/`; `bandit -r backend/app`;
+- [x] **P0-03 Escaneos iniciales.** `gitleaks` sobre todo el historial y `.planning/`; `bandit -r backend/app`;
   `pip-audit -r` sobre las dependencias fijadas; `pnpm audit --prod`; búsqueda de hostnames/IPs/dominios reales en
   `.planning/` y `docs/`. Resultados en `docs/hardening/SCANS-BASELINE.md`. No se borra nada (D12); se reporta.
   *Aceptación:* archivo generado; cada hallazgo con severidad y decisión (corregir/aceptar/reportar).
-- [ ] **P0-04 Script único de verificación.** Crear `scripts/check.sh` que ejecute, en este orden y saliendo al primer
+- [x] **P0-04 Script único de verificación.** Crear `scripts/check.sh` que ejecute, en este orden y saliendo al primer
   fallo: `shellcheck` sobre `deploy/**/*.sh` y `scripts/*.sh`; `bash -n` de cada script; `ruff check` y `mypy`
   (según `backend/ruff.toml` y `mypy.ini`); `pytest -q`; `pnpm lint && pnpm test`; y las pruebas de scripts (P0-05).
   *Aceptación:* `scripts/check.sh` termina en 0 sobre el estado actual, o falla solo por lo registrado en `BASELINE.md`.
-- [ ] **P0-05 Arnés para scripts de root.** Crear `deploy/tests/` con: `lib.sh` (aserciones mínimas, sin dependencias);
+- [x] **P0-05 Arnés para scripts de root.** Crear `deploy/tests/` con: `lib.sh` (aserciones mínimas, sin dependencias);
   `shims/` con ejecutables falsos `pct`, `pvesh`, `pveam`, `systemctl`, `runuser`, `visudo`, `ssh-keygen` (real,
   no shim), `curl`, `apt-get` que registran sus argumentos en un log y devuelven salidas configurables;
   y `run.sh` que ejecuta cada `test_*.sh` con `PATH=shims:$PATH` y directorios temporales en lugar de `/etc`, `/opt`,
   `/var/lib` (los scripts deben aceptar `PGUI_ROOT` como prefijo de pruebas; añadirlo en P2/P3).
   Añadir un primer test que reproduzca hoy los bugs de `install.sh` (HOSTNAME heredado, flag sin valor, CTID ajeno).
   *Aceptación:* `deploy/tests/run.sh` corre y **falla** en esos casos (prueba roja documentada); se vuelve verde en P2.
-- [ ] **P0-06 CI mínimo.** `.github/workflows/ci.yml` con jobs `shell` (shellcheck + deploy/tests), `backend`
+- [x] **P0-06 CI mínimo.** `.github/workflows/ci.yml` con jobs `shell` (shellcheck + deploy/tests), `backend`
   (Python 3.12: ruff, mypy, pytest), `frontend` (Node 22, pnpm frozen-lockfile, lint, test, build) y `scans`
   (gitleaks, bandit, pip-audit, pnpm audit). Acciones fijadas por SHA de commit, `permissions: contents: read`.
   Añadir `.github/dependabot.yml` (pip, npm, github-actions, semanal).

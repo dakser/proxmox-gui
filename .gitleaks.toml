@@ -1,0 +1,7 @@
+# Test fixtures use throw-away passwords; allow them only under backend/tests/.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "throw-away credentials in backend unit-test fixtures"
+paths = ['''^backend/tests/''']
