@@ -235,7 +235,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   direcciones de loopback/metadata), límites de longitud, no reflejar cuerpos de error de PVE sin sanear. Tests.
 - [x] **P5-07 Community-scripts.** Test que demuestre que un slug hostil (`; id`, `$(id)`, `../`, URL completa) no llega al shell y que la URL
   queda anclada al commit del catálogo (`provisioning_functions.py`, `catalog/service.py`).
-- [ ] **P5-08 Auditoría rápida del resto.** Revisar de forma dirigida (grep + lectura) `auth/`, `pats/`, `mcp/server.py`, `users/`, `teams/`,
+- [x] **P5-08 Auditoría rápida del resto.** Revisar de forma dirigida (grep + lectura) `auth/`, `pats/`, `mcp/server.py`, `users/`, `teams/`,
   `quotas/`, `inventory/`, `lifecycle/` en busca de: rutas sin dependencia de autenticación, comprobaciones de `tenant_id`/team ausentes
   (IDOR), uso de `text()`/SQL crudo, `eval`/`exec`, deserialización insegura, secretos en logs. Todo hallazgo → test que falla → arreglo.
   Resultado en `docs/hardening/APP-REVIEW.md`, incluso si no hay hallazgos.
