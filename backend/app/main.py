@@ -229,12 +229,18 @@ def create_app() -> FastAPI:
     async def _bootstrap_failed_handler(
         _: Request, exc: BootstrapFailed,
     ) -> JSONResponse:
+        # The underlying PVE error text is logged, never reflected (F-13): it can carry paths,
+        # internal hostnames or token fragments.
+        logging.getLogger(__name__).error(
+            "tenant bootstrap failed on cluster %r: %r", exc.cluster_name, exc.original
+        )
+        safe_name = "".join(c for c in str(exc.cluster_name)[:128] if c.isprintable())
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "detail": (
-                    f"Tenant bootstrap failed on cluster "
-                    f"{exc.cluster_name!r}: {exc.original}"
+                    f"Tenant bootstrap failed on cluster {safe_name!r}. "
+                    "See the server log for details."
                 ),
             },
         )

@@ -231,7 +231,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   el proxy local (ya existe en `core/source_ip.py`; añadir test si falta).
 - [x] **P5-05 TLS de consola.** Confirmar en `console/proxy.py` si con `verify_ssl=False` se aplica el fingerprint guardado; si no, aplicarlo
   (comparación del certificado del peer contra `tls_fingerprint`) con tests en `test_console.py` y `test_tls_pinning.py`.
-- [ ] **P5-06 Registro de clústeres.** Revisar `clusters/routes.py` y `service.py`: SSRF (rechazar esquemas/puertos inesperados y, según política,
+- [x] **P5-06 Registro de clústeres.** Revisar `clusters/routes.py` y `service.py`: SSRF (rechazar esquemas/puertos inesperados y, según política,
   direcciones de loopback/metadata), límites de longitud, no reflejar cuerpos de error de PVE sin sanear. Tests.
 - [ ] **P5-07 Community-scripts.** Test que demuestre que un slug hostil (`; id`, `$(id)`, `../`, URL completa) no llega al shell y que la URL
   queda anclada al commit del catálogo (`provisioning_functions.py`, `catalog/service.py`).

@@ -35,6 +35,7 @@ import asyncio
 from app.clusters.connector import PVEConnector
 from app.clusters.errors import PVEAPIError, PVEAuthError, PVEUnreachable
 from app.clusters.pinning import capture_fingerprint
+from app.clusters.target_policy import TargetNotAllowed, check_target
 from app.clusters.registry import PVEConnectorRegistry
 from app.clusters.schemas import (
     ClusterCreate,
@@ -128,6 +129,10 @@ async def test_cluster(payload: ClusterTestRequest) -> ClusterTestResponse:
     Failure modes are normalised to human-friendly strings (the UI displays
     them verbatim). The actual exception type is not exposed.
     """
+    try:
+        await check_target(payload.host, payload.port)
+    except TargetNotAllowed:
+        return ClusterTestResponse(ok=False, error="That address isn't allowed as a Proxmox target.")
     connector = _build_transient_connector(
         host=payload.host, port=payload.port,
         token_user=payload.token_user, token_name=payload.token_name,
@@ -194,6 +199,13 @@ async def register_cluster(
         HTTPException(500): tenant bootstrap failed on the new cluster
             (DB row + any partial PVE state are rolled back / cleaned up).
     """
+    try:
+        await check_target(payload.host, payload.port)
+    except TargetNotAllowed as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="That address isn't allowed as a Proxmox target.",
+        ) from exc
     connector = _build_transient_connector(
         host=payload.host, port=payload.port,
         token_user=payload.token_user, token_name=payload.token_name,
@@ -316,7 +328,10 @@ async def backfill_bootstrap(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Tenant bootstrap failed on {exc.cluster_name}: {exc.original}",
+            detail=(
+                f"Tenant bootstrap failed on {exc.cluster_name!s:.128}. "
+                "See the server log for details."
+            ),
         ) from exc
     await db.commit()
     return {
@@ -399,6 +414,14 @@ async def update_cluster(
     # Effective values for re-validation (only if token is changing).
     effective_host = payload.host if payload.host is not None else row.host
     effective_port = payload.port if payload.port is not None else row.port
+    if payload.host is not None or payload.port is not None:
+        try:
+            await check_target(effective_host, effective_port)
+        except TargetNotAllowed as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="That address isn't allowed as a Proxmox target.",
+            ) from exc
     effective_verify_ssl = (
         payload.verify_ssl if payload.verify_ssl is not None else row.verify_ssl
     )
