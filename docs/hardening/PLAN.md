@@ -255,7 +255,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   por defecto en `install.sh`, `selfupdate/service.py`, `release.conf`, README). Ninguna referencia a `chloepriceless/*` debe quedar como origen de código
   ejecutable; sí en `LICENSE`/créditos.
   *Aceptación:* `grep -rn "chloepriceless" --include=*.sh --include=*.py --include=*.yml --include=*.conf .` no devuelve nada ejecutable.
-- [ ] **P6-06 Escaneos bloqueantes.** Quitar `continue-on-error` de bandit, pip-audit y `pnpm audit` en `ci.yml` (pip-audit ya en 0); registrar excepciones puntuales en `SCANS-BASELINE.md`.
+- [x] **P6-06 Escaneos bloqueantes.** Quitar `continue-on-error` de bandit, pip-audit y `pnpm audit` en `ci.yml` (pip-audit ya en 0); registrar excepciones puntuales en `SCANS-BASELINE.md`.
 - [ ] **P6-05 Documentación de instalación segura.** `deploy/README.md` y `README.md`: flujo recomendado (descargar `install.sh` a un archivo, comparar su
   SHA-256 publicado en la release, leer, ejecutar con `--release vX.Y.Z`), modelo de amenazas resumido, qué implica habilitar community-scripts,
   procedimiento de rotación de `master.key`/JWT, y desinstalación.
