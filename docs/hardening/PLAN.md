@@ -106,7 +106,7 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
   `authorized_keys` de ese CT (por comentario exacto), retira el gate si no quedan otras entradas, y solo con `--purge`
   destruye el CT (pide confirmación escrita del CTID).
   *Aceptación:* test de ida y vuelta (install → uninstall) deja `authorized_keys` idéntico al inicial.
-- [ ] **P1-05 Cliente SSH en el backend.** En `connector.py::_ssh_pct_exec` y `networks/preflight.py::_run_ssh_probe`:
+- [x] **P1-05 Cliente SSH en el backend.** En `connector.py::_ssh_pct_exec` y `networks/preflight.py::_run_ssh_probe`:
   pasar `-i /etc/proxmox-gui/gui_ed25519`, `-o IdentitiesOnly=yes`, `-o UserKnownHostsFile=/var/lib/proxmox-gui/ssh/known_hosts`,
   `-o StrictHostKeyChecking=yes`, `-o BatchMode=yes`, `-o ClearAllForwardings=yes`, `-T`; construir el argv con el
   protocolo de P1-01 (sin `shlex.quote` de una cadena de shell remota). Validar `node` contra

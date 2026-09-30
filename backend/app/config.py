@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # Paths.
     master_key_path: Path = Path("/etc/proxmox-gui/master.key")
 
+    # SSH gate (community-scripts channel, docs/hardening/SSH-GATE.md). Opt-in:
+    # the installer sets PROXMOX_GUI_COMMUNITY_SCRIPTS_ENABLED=true only with
+    # --enable-community-scripts.
+    community_scripts_enabled: bool = False
+    ssh_key_path: Path = Path("/etc/proxmox-gui/gui_ed25519")
+    ssh_known_hosts_path: Path = Path("/var/lib/proxmox-gui/ssh/known_hosts")
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False

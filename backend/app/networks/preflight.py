@@ -10,8 +10,10 @@ This module preflights that trust so the wizard can gate ONLY the
 community-script path with a guided fix when SSH is not set up. Plain-LXC and
 VM provisioning need no SSH and are never gated.
 
-The probe runs a trivial node-side command (``pct list``) over the same
-``ssh -o BatchMode=yes`` transport the deploy uses. ``BatchMode=yes`` forbids
+The probe asks the node-side forced-command gate for ``preflight`` (which runs
+only ``pct list``) over the same hardened ssh transport the deploy uses
+(docs/hardening/SSH-GATE.md). When the opt-in channel is disabled it returns
+``ok: false`` with a clear message without spawning ssh. ``BatchMode=yes`` forbids
 any interactive/password prompt, so an untrusted key fails fast instead of
 hanging. The preflight NEVER raises — a failure returns ``{ok: False, detail}``.
 """
@@ -22,6 +24,8 @@ import asyncio
 import logging
 from typing import Any
 
+from app.clusters.ssh_gate import CHANNEL_DISABLED_DETAIL, build_ssh_argv, gate_settings
+
 logger = logging.getLogger(__name__)
 
 SSH_PREFLIGHT_TIMEOUT_S = 10.0
@@ -31,19 +35,19 @@ _OK_MARKER = "PREFLIGHT_OK"
 async def _run_ssh_probe(
     node: str, remote_cmd: str, timeout: float  # noqa: ASYNC109 — `timeout` is the SSH ConnectTimeout value, not an async-cancellation budget
 ) -> tuple[int, str]:
-    """Run ``ssh -o BatchMode=yes root@<node> <remote_cmd>``; return (rc, output).
+    """Run the gate verb ``remote_cmd`` (``preflight``) on ``node``; return (rc, output).
 
     Isolated in its own function so tests monkeypatch it without a real node.
-    ``BatchMode=yes`` means a missing/untrusted key fails fast (non-zero rc)
-    rather than blocking on a password prompt.
+    Same hardened ssh argv as the exec path (explicit identity, pinned host key,
+    ``BatchMode=yes``): a missing/untrusted key fails fast instead of prompting.
+    A hostile ``node`` raises ``ValueError`` before any process is spawned.
     """
+    argv = build_ssh_argv(
+        gate_settings(), node, remote_cmd, connect_timeout=int(timeout)
+    )
     proc = await asyncio.create_subprocess_exec(
-        "ssh",
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", f"ConnectTimeout={int(timeout)}",
-        f"root@{node}",
-        remote_cmd,
+        *argv,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -70,9 +74,10 @@ async def ssh_pct_exec_preflight(
     """
     # `connector` is reserved for future per-cluster SSH config; today SSH trust
     # is established with the GUI's own key against the node, so it is unused.
-    remote_cmd = f"pct list >/dev/null 2>&1 && echo {_OK_MARKER}"
+    if not gate_settings().community_scripts_enabled:
+        return {"ok": False, "detail": CHANNEL_DISABLED_DETAIL}
     try:
-        rc, output = await _run_ssh_probe(node, remote_cmd, timeout)
+        rc, output = await _run_ssh_probe(node, "preflight", timeout)
     except Exception as exc:  # noqa: BLE001 — any failure means "not reachable"
         logger.warning("ssh preflight error for node=%s: %s", node, exc)
         return {"ok": False, "detail": f"SSH preflight error: {exc}"}
