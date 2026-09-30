@@ -116,7 +116,7 @@ async def jobs_ws(
     await websocket.send_json({"type": "backfill", "jobs": backfill})
 
     # Register for the team-scoped fan-out — broadcast() re-filters per push.
-    CONNECTION_MANAGER.add(websocket, team_ids)
+    CONNECTION_MANAGER.add(websocket, team_ids, is_admin=bool(user.is_admin))
     try:
         while True:
             # Client keepalive pings; the server never needs the payload.

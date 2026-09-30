@@ -33,8 +33,9 @@ async def list_jobs(
 ) -> list[Job]:
     """Team-scoped job list, newest-first (D-01 — team-wide drawer scope)."""
     stmt = select(Job).order_by(Job.created_at.desc(), Job.id.desc())
-    if team_ids:
-        stmt = stmt.where(Job.team_id.in_(team_ids))
+    # ALWAYS scope by team: an empty team set must yield NO rows, not "no filter" (which
+    # used to hand every tenant's jobs to a user without teams).
+    stmt = stmt.where(Job.team_id.in_(team_ids))
     if state is not None:
         stmt = stmt.where(Job.state == state)
     stmt = stmt.limit(limit)
