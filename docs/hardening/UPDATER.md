@@ -18,23 +18,23 @@ disparado por systemd hace todo el trabajo y solo acepta releases firmadas por l
 
 ## Flujo de `apply`
 
-1. Lee la solicitud (≤ 64 bytes, `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`, sin `..`) y **la borra antes de hacer nada más**.
+1. Lee la solicitud con un único fd (`O_NOFOLLOW`, directorio `update/` abierto sin seguir enlaces, borrado por dir-fd) (≤ 64 bytes, `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`, sin `..`) y **la borra antes de hacer nada más**.
 2. Política de versión: solo hacia adelante (semver; una release sin sufijo es mayor que su prerelease). Igual al activo → `noop`.
    Menor → rechazo, salvo `--allow-downgrade` en la consola de root (la solicitud del worker nunca puede pedirlo).
 3. Descarga `SHA256SUMS`, `SHA256SUMS.sig` y `proxmox-gui-<tag>.tar.gz` de `<REPO_URL>/releases/download/<tag>/` a un directorio
    temporal de root (límites de tamaño). Verifica la firma (`ssh-keygen -Y verify`, namespace `proxmox-gui-release`) y el hash.
-4. Valida el tarball **antes** de extraer (Python `tarfile`, sin ejecutar nada): rutas absolutas, `..`, enlaces simbólicos con destino
-   absoluto o fuera del árbol, enlaces duros, dispositivos, FIFOs, nombres con caracteres de control. Extrae con
-   `tar --no-same-owner --no-same-permissions` en `releases/<tag>` (directorio nuevo; **nunca** el activo ni el anterior).
+4. Valida y extrae el tarball con **el mismo intérprete** (Python `tarfile`, `filter='data'`): solo ficheros regulares y directorios (symlinks,
+   hardlinks, dispositivos y FIFOs se rechazan), sin rutas absolutas, `.`/`..`/vacíos, `\\`, duplicados ni setuid, con tope de tamaño. Extrae en `releases/<tag>` (directorio nuevo; **nunca** el activo ni el anterior).
 5. Comprueba estructura (`backend/`, `frontend/build/index.js`, `deploy/`, `backend/requirements.lock`, `deploy/pins.env`) y toolchain.
 6. `root:root`, modos 755/644. Venv nuevo con Python fijado; dependencias con `--require-hashes --only-binary=:all:`; backend no editable.
-7. Backup consistente `sqlite3 .backup` → `/var/lib/proxmox-gui/backups/` (conserva los 5 últimos).
+7. Backup consistente `sqlite3 -readonly … .backup` → `/var/lib/proxmox-gui-updater/backups/` (`root:root` 0700, fuera del alcance de la app; conserva los 5 últimos). Se rechaza que `app.db` sea un symlink.
 8. Migraciones con `runuser -u proxmox-gui` usando el venv nuevo (marca "migración iniciada" antes de ejecutarlas).
 9. Cambio atómico del symlink `current` (`previous` apunta al release anterior); instala unidades, render de Caddy y updater desde el release nuevo.
 10. Reinicia API y espera `GET /api/v1/health` hasta 60 s; después frontend; escribe `succeeded`; espera 5 s y reinicia el worker el último.
-11. **Fallo en cualquier paso** ⇒ rollback: symlink al release previo, restaurar la BD **solo si la migración llegó a iniciarse**, reiniciar servicios,
+11. La restauración de BD crea un fichero nuevo `O_EXCL` en el directorio de la app, `fchown/fchmod` sobre el fd y `rename` atómico (reemplaza un symlink plantado, nunca lo sigue).
+12. **Fallo en cualquier paso** ⇒ rollback: symlink al release previo, restaurar la BD **solo si la migración llegó a iniciarse**, reiniciar servicios,
     borrar el release fallido, estado `failed` (`rolled_back: true`).
-12. Retención: `current` + `previous` + 1 más (los 3 más recientes por versión; nunca se borra el activo ni el previo).
+13. Retención: `current` + `previous` + 1 más (los 3 más recientes por versión; nunca se borra el activo ni el previo).
 
 ## `status.json`
 

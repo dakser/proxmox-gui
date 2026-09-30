@@ -213,7 +213,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P4-05 Ruta CLI.** `install.sh --update` deja de tener lógica propia: verifica la release en el host y escribe la solicitud /
   invoca el updater dentro del CT. Eliminar `deploy/lxc/update.sh` (o dejarlo como wrapper de una línea hacia el updater).
 
-- [ ] **P4-06 Updater seguro frente a la app (F-15, F-17).** Mover backups/staging a `/var/lib/proxmox-gui-updater` (`root:root` 0700); leer `update/request` con un único fd sin seguir enlaces; no usar rutas de la app para escritura de root salvo creando ficheros con `install`/`mktemp` dentro de un directorio root y `rename` atómico; sanear y acotar `status.json` y mensajes; extraer el tarball con el mismo intérprete que lo valida y rechazar miembros que no sean fichero/directorio.
+- [x] **P4-06 Updater seguro frente a la app (F-15, F-17).** Mover backups/staging a `/var/lib/proxmox-gui-updater` (`root:root` 0700); leer `update/request` con un único fd sin seguir enlaces; no usar rutas de la app para escritura de root salvo creando ficheros con `install`/`mktemp` dentro de un directorio root y `rename` atómico; sanear y acotar `status.json` y mensajes; extraer el tarball con el mismo intérprete que lo valida y rechazar miembros que no sean fichero/directorio.
   *Aceptación:* tests del arnés con symlinks plantados en `update/`, `backups/`, `request` y `${DB_FILE}.restore` que demuestren que root no toca el destino del enlace; tarball con hardlink/duplicados/`..` rechazado.
 
 ## P5 — Endurecimiento de la aplicación (F-06, F-09, F-11, F-12, F-13)

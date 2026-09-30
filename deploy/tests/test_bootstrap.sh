@@ -70,6 +70,8 @@ assert_eq "32" "$(stat -c %s "$R/etc/proxmox-gui/master.key")" "master.key is 32
 assert_logged "chown root:proxmox-gui" "secrets are root:proxmox-gui"
 assert_mode "$R/etc/proxmox-gui" 750
 assert_mode "$R/var/lib/proxmox-gui" 750
+assert_mode "$R/var/lib/proxmox-gui-updater" 700
+assert_no_file "$R/var/lib/proxmox-gui/backups" "backups are not kept in the app-owned directory"
 assert_logged "chown proxmox-gui:proxmox-gui $R/var/lib/proxmox-gui" "data dir owned by the service user"
 assert_no_file "$R/etc/proxmox-gui/gui_ed25519" "no SSH key unless community-scripts is enabled"
 assert_file "$R/etc/proxmox-gui/.installed" "marker"

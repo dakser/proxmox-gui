@@ -57,6 +57,7 @@ REL_DIR="${RELEASES_DIR}/${RELEASE}"
 ETC_DIR="${ROOT}/etc/proxmox-gui"
 DATA_DIR="${ROOT}/var/lib/proxmox-gui"
 LOG_DIR="${ROOT}/var/log/proxmox-gui"
+UPDATER_WORK_DIR="${ROOT}/var/lib/proxmox-gui-updater"
 SYSTEMD_DIR="${ROOT}/etc/systemd/system"
 SBIN_DIR="${ROOT}/usr/local/sbin"
 PY_DIR="${ROOT}/opt/python"
@@ -131,12 +132,14 @@ usermod -aG redis "$APP_USER"
 # Step 4: directories and modes
 # ----------------------------------------------------------------------------
 info "Creating directory layout..."
-mkdir -p "$ETC_DIR" "$APP_HOME" "$RELEASES_DIR" "$DATA_DIR" "$DATA_DIR/update" "$DATA_DIR/backups" "$LOG_DIR" "$SBIN_DIR"
+mkdir -p "$ETC_DIR" "$APP_HOME" "$RELEASES_DIR" "$DATA_DIR" "$DATA_DIR/update" "$LOG_DIR" "$SBIN_DIR" "$UPDATER_WORK_DIR"
 chown root:root "$APP_HOME" "$RELEASES_DIR"
 chmod 0755 "$APP_HOME" "$RELEASES_DIR"
 chown "root:${APP_USER}" "$ETC_DIR";  chmod 0750 "$ETC_DIR"
-chown "${APP_USER}:${APP_USER}" "$DATA_DIR" "$DATA_DIR/update" "$DATA_DIR/backups" "$LOG_DIR"
-chmod 0750 "$DATA_DIR" "$DATA_DIR/update" "$DATA_DIR/backups" "$LOG_DIR"
+chown "${APP_USER}:${APP_USER}" "$DATA_DIR" "$DATA_DIR/update" "$LOG_DIR"
+chmod 0750 "$DATA_DIR" "$DATA_DIR/update" "$LOG_DIR"
+# The updater's own working area (backups, staging): root only, outside anything the app can write (F-15).
+chown root:root "$UPDATER_WORK_DIR"; chmod 0700 "$UPDATER_WORK_DIR"
 
 # ----------------------------------------------------------------------------
 # Step 5: the release, immutable and root-owned (F-02)

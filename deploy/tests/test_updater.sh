@@ -25,6 +25,10 @@ if [[ "$1" == "-m" && "$2" == "venv" ]]; then
 #!/usr/bin/env bash
 echo "alembic $*" >>"$SHIM_LOG"
 sqlite3 "$PGUI_ROOT/var/lib/proxmox-gui/app.db" "INSERT INTO marks VALUES ('migrated');"
+if [[ -e "$T_TMP/plant_links" ]]; then   # the (compromised) app user plants links while the migration runs
+    d="$PGUI_ROOT/var/lib/proxmox-gui"
+    ln -sf "$T_TMP/victim" "$d/app.db-wal"; ln -sf "$T_TMP/victim" "$d/app.db-shm"; ln -sf "$T_TMP/victim" "$d/app.db.restore"
+fi
 [[ -e "$T_TMP/alembic_fail" ]] && exit 1
 exit 0
 A
@@ -40,9 +44,9 @@ fresh() {  # fresh [current-tag]: installed LXC state at <current-tag> (default 
     reset_env
     export SHIM_CFG SHIM_LOG PGUI_ROOT
     unset -f release_stage_hook 2>/dev/null || true
-    rm -f "$T_TMP/alembic_fail" "$T_TMP/health_fail"
+    rm -f "$T_TMP/alembic_fail" "$T_TMP/health_fail" "$T_TMP/plant_links"
     mkdir -p "$R/opt/proxmox-gui/releases/$cur" "$R/etc/proxmox-gui" "$R/var/lib/proxmox-gui/update" \
-        "$R/var/lib/proxmox-gui/backups" "$R/etc/systemd/system" "$R/usr/local/sbin"
+        "$R/etc/systemd/system" "$R/usr/local/sbin"
     echo "old" >"$R/opt/proxmox-gui/releases/$cur/marker"
     ln -sfn "releases/$cur" "$R/opt/proxmox-gui/current"
     echo "REPO_URL=https://github.com/o/r" >"$R/etc/proxmox-gui/release.conf"
@@ -90,7 +94,10 @@ assert_not_contains "$(grep '^pip' "$SHIM_LOG")" "--upgrade" "no pip upgrade"
 assert_logged "alembic -c $NEWR/backend/alembic.ini upgrade head" "migration with the NEW venv"
 assert_logged "runuser -u proxmox-gui -- env PROXMOX_GUI_DATABASE_URL=" "migration as the unprivileged user"
 assert_eq "before,migrated" "$(db_marks)" "database migrated"
-bk="$(ls "$R"/var/lib/proxmox-gui/backups/app-*-pre-v0.2.0.db)"
+bk="$(ls "$R"/var/lib/proxmox-gui-updater/backups/app-*-pre-v0.2.0.db)"
+assert_mode "$R/var/lib/proxmox-gui-updater" 700
+assert_mode "$bk" 600
+assert_no_file "$R/var/lib/proxmox-gui/backups" "no backups in the app-controlled directory"
 assert_eq "before" "$(sqlite3 "$bk" "SELECT group_concat(v) FROM marks;")" "consistent pre-update backup"
 order="$(grep -n '^systemctl restart' "$SHIM_LOG" | sed 's/^[0-9]*://' | tr '\n' '|')"
 assert_eq "systemctl restart proxmox-gui-api.service|systemctl restart proxmox-gui-frontend.service|systemctl restart proxmox-gui-worker.service|" "$order" "restart order: api, frontend, worker LAST"
@@ -150,6 +157,11 @@ declare -A EVIL=(
     [chardev]='add("backend/dev","chr")'
     [fifo]='add("backend/pipe","fifo")'
     [setuid]='add("backend/su","suid")'
+    [symlink-inside]='add("backend/ok-link","sym","pyproject.toml")'
+    [duplicate]='add("backend/dup","file"); add("backend/dup","file")'
+    [dot-component]='add("backend/./x","file")'
+    [double-slash]='add("backend//x","file")'
+    [backslash]='add("backend\\\\x","file")'
 )
 for name in "${!EVIL[@]}"; do
     fresh; request v0.2.0
@@ -175,7 +187,7 @@ for d in ("backend", "frontend", "frontend/build", "deploy"):
     ti = tarfile.TarInfo(d); ti.type = tarfile.DIRTYPE; ti.mode = 0o755; tf.addfile(ti)
 for n in ("backend/requirements.lock", "frontend/build/index.js", "deploy/pins.env"):
     ti = tarfile.TarInfo(n); ti.size = 1; tf.addfile(ti, io.BytesIO(b"x"))
-eval(action)
+exec(action)
 tf.close()
 PY
     cp "$T_TMP/stage-evil.tar.gz" "$REL_DIR/proxmox-gui-v0.2.0.tar.gz"; sign_release v0.2.0
@@ -293,5 +305,48 @@ assert_rc 0 "rollback again (forward) with restore"; assert_eq "before" "$(db_ma
 test_case "status subcommand"
 run_cmd bash "$UPD" status
 assert_rc 0 "status"; assert_contains "$OUT" "current:" "prints current"
+
+test_case "F-15: a planted symlink as the request file is never followed"
+fresh; echo "victim" >"$T_TMP/victim"
+printf 'v0.2.0' >"$T_TMP/req-target"
+ln -s "$T_TMP/req-target" "$R/var/lib/proxmox-gui/update/request"
+apply
+assert_rc_nonzero "symlinked request"; assert_eq "failed" "$(jget state)" "state failed"
+assert_not_logged "curl" "no download from a symlinked request"; assert_unchanged v0.1.0 "symlinked request"
+assert_eq "v0.2.0" "$(cat "$T_TMP/req-target")" "link target untouched"
+
+test_case "F-15: the update/ directory replaced by a symlink is not followed"
+fresh; mkdir "$T_TMP/elsewhere"; printf 'v0.2.0' >"$T_TMP/elsewhere/request"
+rm -rf "$R/var/lib/proxmox-gui/update"; ln -s "$T_TMP/elsewhere" "$R/var/lib/proxmox-gui/update"
+apply
+assert_not_logged "curl" "no download"; assert_unchanged v0.1.0 "symlinked update dir"
+assert_file "$T_TMP/elsewhere/request" "file behind the symlinked directory not deleted"
+
+test_case "F-15: planted symlinks around the database never redirect root's writes (restore path)"
+fresh; request v0.2.0; touch "$T_TMP/alembic_fail"
+printf 'VICTIM' >"$T_TMP/victim"; chmod 644 "$T_TMP/victim"
+touch "$T_TMP/plant_links"
+ln -s "$T_TMP/victim" "$R/var/lib/proxmox-gui/backups"
+apply
+assert_rc_nonzero "migration failure with planted links"
+assert_eq "before" "$(db_marks)" "database still restored correctly"
+assert_eq "VICTIM" "$(cat "$T_TMP/victim")" "victim file content untouched"
+assert_mode "$T_TMP/victim" 644
+assert_no_file "$R/var/lib/proxmox-gui/app.db-wal" "sidecar link removed, not followed"
+assert_eq "0" "$(find "$T_TMP" -maxdepth 1 -name 'app-*' | wc -l)" "no backup written through the planted backups link"
+
+test_case "F-15: the database path being a symlink is refused (no backup of arbitrary files)"
+fresh; request v0.2.0; mv "$R/var/lib/proxmox-gui/app.db" "$T_TMP/realdb"; ln -s "$T_TMP/realdb" "$R/var/lib/proxmox-gui/app.db"
+apply
+assert_rc_nonzero "symlinked database"; assert_contains "$(jget message)" "symlink" "message"; assert_unchanged v0.1.0 "symlinked db"
+
+test_case "F-15: hostile request contents are sanitized in status.json"
+fresh; request 'v1"},{"state":"succeeded'
+apply
+assert_rc_nonzero "quote injection"
+assert_eq "failed" "$(jget state)" "status stays valid JSON and failed"
+fresh; request "$(printf 'v1\x01\x7f\xff')"
+apply
+assert_rc_nonzero "control bytes"; assert_eq "failed" "$(jget state)" "valid JSON"
 
 finish

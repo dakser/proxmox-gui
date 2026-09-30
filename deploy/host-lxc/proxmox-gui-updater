@@ -24,8 +24,8 @@ CURRENT_LINK="${APP_HOME}/current"
 PREVIOUS_LINK="${APP_HOME}/previous"
 ETC_DIR="${ROOT}/etc/proxmox-gui"
 DATA_DIR="${ROOT}/var/lib/proxmox-gui"
-REQUEST_FILE="${DATA_DIR}/update/request"
-BACKUP_DIR="${DATA_DIR}/backups"
+WORK_DIR="${ROOT}/var/lib/proxmox-gui-updater"   # root:root 0700 — the app cannot touch it (F-15)
+BACKUP_DIR="${WORK_DIR}/backups"
 STATUS_DIR="${ROOT}/run/proxmox-gui-updater"
 STATUS_FILE="${STATUS_DIR}/status.json"
 SYSTEMD_DIR="${ROOT}/etc/systemd/system"
@@ -101,9 +101,7 @@ rollback_state() {  # undo a partially applied update; prints a short summary
     # services that hold it open stopped (an in-place swap under a live process would diverge).
     if [[ "$MIGRATION_STARTED" -eq 1 && -n "$BACKUP_PATH" && -f "$BACKUP_PATH" ]]; then
         systemctl stop proxmox-gui-api.service proxmox-gui-worker.service || true
-        if cp -f "$BACKUP_PATH" "${DB_FILE}.restore" && mv -f "${DB_FILE}.restore" "$DB_FILE"; then
-            rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
-            chown "${APP_USER}:${APP_USER}" "$DB_FILE" 2>/dev/null || true
+        if pyhelper restore-db "$BACKUP_PATH" "$DATA_DIR" "$(basename "$DB_FILE")" "$APP_USER"; then
             db_restored=1
             msgs="${msgs}database restored; "
         fi
@@ -165,53 +163,134 @@ ver_cmp() {
 # ---------------------------------------------------------------------------
 # Python tar validator (reads the archive listing only; nothing is extracted)
 # ---------------------------------------------------------------------------
-validate_tarball() {  # validate_tarball <tar.gz>
-    "$PYTHON_BIN" - "$1" <<'PY'
-import posixpath
-import sys
-import tarfile
+# All access to app-controlled paths (request file, database) and the tarball handling go through this
+# ONE Python program (fd-based, O_NOFOLLOW, same interpreter validates and extracts: F-15/F-17).
+pyhelper() {
+    "$PYTHON_BIN" -c "$PYHELPER" "$@"
+}
+PYHELPER='
+import io, os, pwd, stat, sys, tarfile
 
 MAX_MEMBERS = 100000
-path = sys.argv[1]
-problems = []
-try:
-    tf = tarfile.open(path, "r:gz")
-except Exception as exc:  # noqa: BLE001
-    print(f"cannot open archive: {exc}")
-    sys.exit(1)
-count = 0
-for m in tf:
-    count += 1
-    if count > MAX_MEMBERS:
-        problems.append("too many members")
-        break
-    name = m.name
-    if not name or name.startswith("/") or any(ord(c) < 32 or ord(c) == 127 for c in name):
-        problems.append(f"bad name {name!r}")
-        continue
-    parts = name.split("/")
-    if ".." in parts:
-        problems.append(f"path traversal in {name!r}")
-        continue
-    if m.isdir() or m.isreg():
-        if m.mode & 0o6000:
-            problems.append(f"setuid/setgid bit on {name!r}")
-        continue
-    if m.issym():
-        target = m.linkname
-        if target.startswith("/") or any(ord(c) < 32 for c in target):
-            problems.append(f"symlink {name!r} -> absolute or odd target {target!r}")
-            continue
-        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
-        if resolved.startswith("../") or resolved == "..":
-            problems.append(f"symlink {name!r} escapes the tree ({target!r})")
-        continue
-    problems.append(f"disallowed member type for {name!r} (hardlink/device/fifo)")
-if problems:
-    print("; ".join(problems[:5]))
-    sys.exit(1)
-PY
-}
+MAX_TOTAL = 1536 * 1024 * 1024
+
+def open_dir_nofollow(path):
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+def read_request(datadir):
+    # single open, no symlinks anywhere in the last two components, bounded read, unlink via dir fd
+    try:
+        dfd = open_dir_nofollow(os.path.join(datadir, "update"))
+    except OSError:
+        print("NOREQUEST"); return 0
+    try:
+        try:
+            fd = os.open("request", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dfd)
+        except FileNotFoundError:
+            print("NOREQUEST"); return 0
+        except OSError:
+            # a symlink (ELOOP) or anything odd: remove the entry itself, report it invalid
+            try: os.unlink("request", dir_fd=dfd)
+            except OSError: pass
+            print("INVALID"); return 0
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                print("INVALID"); return 0
+            data = os.read(fd, 65)
+        finally:
+            os.close(fd)
+        try: os.unlink("request", dir_fd=dfd)
+        except OSError:
+            print("UNDELETABLE"); return 0
+        if len(data) > 64 or any(c < 0x20 and c not in (10, 13) or c > 0x7e for c in data):
+            print("INVALID"); return 0
+        print("REQ:" + data.decode("ascii").strip("\r\n"))
+        return 0
+    finally:
+        os.close(dfd)
+
+def restore_db(backup, datadir, dbname, owner):
+    # copy into a fresh O_EXCL file inside the app dir (fd-based), chown/chmod on the fd, atomic rename
+    dfd = open_dir_nofollow(datadir)
+    try:
+        src = os.open(backup, os.O_RDONLY | os.O_NOFOLLOW)
+        tmpname = ".restore-%d" % os.getpid()
+        out = os.open(tmpname, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+        try:
+            while True:
+                chunk = os.read(src, 1 << 20)
+                if not chunk: break
+                os.write(out, chunk)
+            os.fsync(out)
+            try:
+                pw = pwd.getpwnam(owner)
+                os.fchown(out, pw.pw_uid, pw.pw_gid)
+            except KeyError:
+                if not os.environ.get("PGUI_ROOT"): raise
+            os.fchmod(out, 0o600)
+        finally:
+            os.close(out); os.close(src)
+        os.rename(tmpname, dbname, src_dir_fd=dfd, dst_dir_fd=dfd)   # replaces a planted symlink, never follows it
+        for side in (dbname + "-wal", dbname + "-shm"):
+            try: os.unlink(side, dir_fd=dfd)
+            except FileNotFoundError: pass
+    finally:
+        os.close(dfd)
+    return 0
+
+def check_members(path):
+    problems, names, total = [], set(), 0
+    try:
+        tf = tarfile.open(path, "r:gz")
+    except Exception as exc:
+        return ["cannot open archive: %s" % exc]
+    count = 0
+    for m in tf:
+        count += 1
+        if count > MAX_MEMBERS:
+            problems.append("too many members"); break
+        name = m.name
+        parts = name.split("/")
+        if (not name or name.startswith("/") or "\\" in name
+                or any(ord(c) < 32 or ord(c) == 127 for c in name)
+                or any(p in ("", ".", "..") for p in parts if not (p == "" and name.endswith("/") and parts[-1] == p))):
+            problems.append("bad member name %r" % name); continue
+        norm = name.rstrip("/")
+        if norm in names:
+            problems.append("duplicate member %r" % name); continue
+        names.add(norm)
+        if m.isreg():
+            if m.mode & 0o6000: problems.append("setuid/setgid on %r" % name)
+            total += m.size
+            if total > MAX_TOTAL: problems.append("archive too large when unpacked")
+        elif m.isdir():
+            pass
+        else:
+            problems.append("member %r is not a regular file or directory (symlink/hardlink/device/fifo refused)" % name)
+    return problems
+
+def validate(path):
+    problems = check_members(path)
+    if problems:
+        print("; ".join(problems[:5])); return 1
+    return 0
+
+def extract(path, dest):
+    problems = check_members(path)          # same interpreter, same pass rules, right before extraction
+    if problems:
+        print("; ".join(problems[:5])); return 1
+    with tarfile.open(path, "r:gz") as tf:
+        for m in tf:
+            tf.extract(m, dest, filter="data")
+    return 0
+
+cmd = sys.argv[1]
+sys.exit({"read-request": lambda: read_request(*sys.argv[2:]), "restore-db": lambda: restore_db(*sys.argv[2:]),
+          "validate": lambda: validate(*sys.argv[2:]), "extract": lambda: extract(*sys.argv[2:])}[cmd]())
+'
+
+validate_tarball() { pyhelper validate "$1"; }
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -292,12 +371,14 @@ cmd_apply() {
     if [[ -n "$cli_tag" ]]; then
         TARGET="$cli_tag"
     else
-        [[ -f "$REQUEST_FILE" && ! -L "$REQUEST_FILE" ]] || { log "no request file; nothing to do"; FINISHED=1; exit 0; }
         local raw
-        raw="$(head -c 65 "$REQUEST_FILE" || true)"
-        rm -f "$REQUEST_FILE" || { write_status failed "request" "could not delete the request file"; FINISHED=1; exit 1; }
-        TARGET="$(printf '%s' "$raw" | tr -d '\n\r' )"
-        if [[ ${#raw} -gt 64 ]]; then TARGET=""; fi
+        raw="$(pyhelper read-request "$DATA_DIR")" || raw="INVALID"
+        case "$raw" in
+            NOREQUEST) log "no request file; nothing to do"; FINISHED=1; exit 0 ;;
+            UNDELETABLE) write_status failed "request" "could not delete the request file"; FINISHED=1; exit 1 ;;
+            REQ:*) TARGET="${raw#REQ:}" ;;
+            *) TARGET="" ;;
+        esac
         allow_downgrade=0   # never honoured from the worker's request
     fi
     if [[ ! "$TARGET" =~ $TAG_RE || "$TARGET" == *..* || ${#TARGET} -gt 64 ]]; then
@@ -328,7 +409,8 @@ cmd_apply() {
 
     # -- download --------------------------------------------------------
     step "downloading" "fetching $TARGET"
-    TMP="$(mktemp -d)"
+    mkdir -p "$WORK_DIR"; chmod 0700 "$WORK_DIR"
+    TMP="$(mktemp -d -p "$WORK_DIR")"
     local name="proxmox-gui-${TARGET}.tar.gz"
     curl -fsSL --proto '=https' --tlsv1.2 --retry 2 --max-filesize "$MAX_SUMS_BYTES" -o "${TMP}/SHA256SUMS" "${base}/SHA256SUMS" \
         || fail "could not download SHA256SUMS for $TARGET"
@@ -367,8 +449,7 @@ cmd_apply() {
     step "extracting" "unpacking into releases/${TARGET}"
     mkdir -p "$RELEASES_DIR"
     mkdir "$NEW_DIR"
-    tar -xzf "${TMP}/${name}" -C "$NEW_DIR" --no-same-owner --no-same-permissions \
-        || fail "extraction failed"
+    if ! why="$(pyhelper extract "${TMP}/${name}" "$NEW_DIR" 2>&1)"; then fail "extraction failed: ${why}"; fi
     for req in backend deploy frontend backend/requirements.lock deploy/pins.env frontend/build/index.js; do
         [[ -e "${NEW_DIR}/${req}" ]] || fail "release lacks ${req}"
     done
@@ -399,11 +480,11 @@ cmd_apply() {
     # -- backup ------------------------------------------------------------
     if [[ -f "$DB_FILE" ]]; then
         step "backing-up" "snapshotting the database"
-        mkdir -p "$BACKUP_DIR"
+        [[ ! -L "$DB_FILE" ]] || fail "database path is a symlink; refusing to back it up"
+        mkdir -p "$BACKUP_DIR"; chmod 0700 "$WORK_DIR" "$BACKUP_DIR"
         BACKUP_PATH="${BACKUP_DIR}/app-$(date -u +%Y%m%dT%H%M%SZ)-pre-${TARGET}.db"
-        sqlite3 "$DB_FILE" ".backup '${BACKUP_PATH}'" || fail "database backup failed"
-        chown "root:${APP_USER}" "$BACKUP_PATH" 2>/dev/null || true
-        chmod 0640 "$BACKUP_PATH"
+        sqlite3 -readonly "$DB_FILE" ".backup '${BACKUP_PATH}'" || fail "database backup failed"
+        chmod 0600 "$BACKUP_PATH"
         ln -sfn "$(basename "$BACKUP_PATH")" "${BACKUP_DIR}/last-pre-update.db"
     fi
 
@@ -472,10 +553,7 @@ cmd_rollback() {
     if [[ "$restore_db" -eq 1 ]]; then
         local last="${BACKUP_DIR}/last-pre-update.db"
         [[ -f "$last" ]] || { echo "ERROR: no pre-update backup to restore" >&2; exit 1; }
-        cp -f "$last" "${DB_FILE}.restore"
-        mv -f "${DB_FILE}.restore" "$DB_FILE"
-        rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
-        chown "${APP_USER}:${APP_USER}" "$DB_FILE" 2>/dev/null || true
+        pyhelper restore-db "$(readlink -f "$last")" "$DATA_DIR" "$(basename "$DB_FILE")" "$APP_USER" || { echo "ERROR: database restore failed" >&2; exit 1; }
     fi
     systemctl restart proxmox-gui-api.service proxmox-gui-frontend.service proxmox-gui-worker.service
     write_status succeeded "rollback" "rolled back to ${TARGET}$([[ $restore_db -eq 1 ]] && echo ' with database restore')"
