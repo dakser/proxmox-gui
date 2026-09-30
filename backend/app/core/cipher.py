@@ -9,8 +9,10 @@ SQLAlchemy ``TypeDecorator`` can encrypt/decrypt transparently.
 
 Threat T-01-01-01 (information disclosure via master.key permissions): when
 ``settings.cookie_secure`` is True (production), :meth:`from_file` enforces
-``os.stat(path).st_mode & 0o077 == 0`` and raises :class:`RuntimeError` if any
-group/other permission bit is set. In dev/test (``cookie_secure=False``) the
+``os.stat(path).st_mode & 0o037 == 0`` and raises :class:`RuntimeError` if any
+"other" bit or a group write/execute bit is set. Group READ is allowed: in
+production the file is ``root:proxmox-gui 0440`` — the service reads it but
+cannot replace it (F-02). In dev/test (``cookie_secure=False``) the
 check is skipped so unprivileged developers can iterate without root.
 """
 
@@ -57,9 +59,10 @@ class SecretCipher:
 
         if settings.cookie_secure:
             mode = os.stat(path).st_mode
-            if mode & 0o077 != 0:
+            if mode & 0o037 != 0:
                 raise RuntimeError(
-                    f"{path} must not be readable by group/other (mode={oct(mode & 0o777)})"
+                    f"{path} must not be accessible by other, nor writable by group "
+                    f"(mode={oct(mode & 0o777)}); expected 0400/0440"
                 )
 
         raw = path.read_bytes()

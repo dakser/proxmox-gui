@@ -96,7 +96,37 @@ def test_from_file_rejects_world_readable_when_cookie_secure_true(
     os.chmod(key_file, 0o444)
 
     monkeypatch.setattr(settings, "cookie_secure", True)
-    with pytest.raises(RuntimeError, match="must not be readable"):
+    with pytest.raises(RuntimeError, match="must not be"):
+        SecretCipher.from_file(key_file)
+
+
+@pytest.mark.parametrize("mode", [0o400, 0o440, 0o640])
+def test_from_file_accepts_owner_and_group_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int
+) -> None:
+    """P3-02: master.key is root:proxmox-gui 0440 in production — group READ is fine
+    (the service reads it, cannot replace it); nothing else is."""
+    from app.config import settings
+
+    key_file = tmp_path / "master.key"
+    key_file.write_bytes(b"\xDD" * 32)
+    os.chmod(key_file, mode)
+    monkeypatch.setattr(settings, "cookie_secure", True)
+    assert SecretCipher.from_file(key_file).decrypt(SecretCipher.from_file(key_file).encrypt("x")) == "x"
+
+
+@pytest.mark.parametrize("mode", [0o444, 0o404, 0o644, 0o460, 0o470, 0o420, 0o600 | 0o001])
+def test_from_file_rejects_other_access_and_group_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int
+) -> None:
+    """Any 'other' bit, or group write/exec, is refused when cookie_secure is on."""
+    from app.config import settings
+
+    key_file = tmp_path / "master.key"
+    key_file.write_bytes(b"\xEE" * 32)
+    os.chmod(key_file, mode)
+    monkeypatch.setattr(settings, "cookie_secure", True)
+    with pytest.raises(RuntimeError, match="must not be"):
         SecretCipher.from_file(key_file)
 
 
