@@ -47,7 +47,7 @@ class SelfUpdateRequest(BaseModel):
         """Reject anything that is not a clean tag string (V5)."""
         if value is None:
             return value
-        if ".." in value or not _TAG_RE.match(value):
+        if ".." in value or not _TAG_RE.fullmatch(value):
             raise ValueError(
                 "target_version must be a semver tag (e.g. 'v0.5.0'); "
                 "got an unexpected character."

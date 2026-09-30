@@ -192,3 +192,10 @@ permisos al arrancar; JWT corto + refresh rotativo en BD; PAT con pepper; cookie
 CSRF de doble envío; rate limiting con lista de proxies confiables; Redis en loopback; `admin off` en Caddy;
 TLS pinning por fingerprint en el conector REST; `shlex.quote` en `lxc_exec`; catálogo de community-scripts anclado
 a un commit; swap atómico con `ln -sfn`; venv por release; snapshot WAL-safe de la BD antes de actualizar.
+
+### F-18 — Validadores con `re.match` + `$` aceptan un salto de línea final (Media) — *hallado en P5-07*
+`_SLUG_RE`, `_COMMIT_SHA_RE` (community-scripts: se interpolan en una URL y en un `bash -c`), `_TAG_RE` del schema de self-update,
+`_TOKEN_USER_RE`, `PVE_TAG_RE`, `_DISK_KEY_RE`, `_PAT_BEARER_RE` y `_LINUX_USERNAME_RE` (cloud-init: se escribe en YAML) usaban
+`pattern.match(x)` con `$`; en Python `$` casa antes de un `\n` final, así que `"docker\n"` o `"<sha>\n"` pasaban la validación.
+Evidencia: `tests/test_community_script_command.py` y `tests/test_regex_anchoring.py` (rojos antes, verdes con `fullmatch`).
+**Cierre:** P5-07 (`fullmatch` en todos).

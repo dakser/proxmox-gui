@@ -78,7 +78,7 @@ def parse_disk_sizes(config: dict) -> dict[str, int]:
     """
     sizes: dict[str, int] = {}
     for key, value in config.items():
-        if not _DISK_KEY_RE.match(str(key)):
+        if not _DISK_KEY_RE.fullmatch(str(key)):
             continue
         if not isinstance(value, str):
             continue

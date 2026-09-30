@@ -75,7 +75,7 @@ def check_host_literal(host: str) -> str:
     if lowered in _FORBIDDEN_NAMES or lowered.endswith((".localhost", ".local.")) or lowered.endswith("."):
         raise ValueError("That hostname is not allowed as a Proxmox target")
     labels = lowered.split(".")
-    if not all(_LABEL_RE.match(label) for label in labels):
+    if not all(_LABEL_RE.fullmatch(label) for label in labels):
         raise ValueError("Host is not a valid hostname")
     return host
 

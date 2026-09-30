@@ -233,7 +233,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   (comparación del certificado del peer contra `tls_fingerprint`) con tests en `test_console.py` y `test_tls_pinning.py`.
 - [x] **P5-06 Registro de clústeres.** Revisar `clusters/routes.py` y `service.py`: SSRF (rechazar esquemas/puertos inesperados y, según política,
   direcciones de loopback/metadata), límites de longitud, no reflejar cuerpos de error de PVE sin sanear. Tests.
-- [ ] **P5-07 Community-scripts.** Test que demuestre que un slug hostil (`; id`, `$(id)`, `../`, URL completa) no llega al shell y que la URL
+- [x] **P5-07 Community-scripts.** Test que demuestre que un slug hostil (`; id`, `$(id)`, `../`, URL completa) no llega al shell y que la URL
   queda anclada al commit del catálogo (`provisioning_functions.py`, `catalog/service.py`).
 - [ ] **P5-08 Auditoría rápida del resto.** Revisar de forma dirigida (grep + lectura) `auth/`, `pats/`, `mcp/server.py`, `users/`, `teams/`,
   `quotas/`, `inventory/`, `lifecycle/` en busca de: rutas sin dependencia de autenticación, comprobaciones de `tenant_id`/team ausentes

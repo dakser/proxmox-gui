@@ -106,7 +106,7 @@ class ClusterCreate(BaseModel):
     @field_validator("token_user")
     @classmethod
     def _validate_token_user(cls, v: str) -> str:
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )
@@ -146,7 +146,7 @@ class ClusterTestRequest(BaseModel):
     @field_validator("token_user")
     @classmethod
     def _validate_token_user(cls, v: str) -> str:
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )
@@ -220,7 +220,7 @@ class ClusterUpdate(BaseModel):
     def _validate_token_user(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )

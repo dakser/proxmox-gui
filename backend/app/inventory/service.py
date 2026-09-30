@@ -241,7 +241,7 @@ async def update_vm_tags(
     # Defense-in-depth: schema already validated; assert again to keep service
     # honest if someone bypasses the route (admin script, future caller).
     for t in new_tags:
-        if not PVE_TAG_RE.match(t):
+        if not PVE_TAG_RE.fullmatch(t):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"invalid tag format: {t!r}",

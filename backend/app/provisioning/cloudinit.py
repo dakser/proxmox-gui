@@ -249,7 +249,7 @@ def validate_cloudinit_form(form: CloudInitForm) -> CloudInitVerdict:
 
     # ---- ciuser must be a valid Linux username --------------------------
     if form.ciuser is not None and form.ciuser != "":
-        if not _LINUX_USERNAME_RE.match(form.ciuser):
+        if not _LINUX_USERNAME_RE.fullmatch(form.ciuser):
             hard.append(FieldError(
                 field="ciuser",
                 message=(
