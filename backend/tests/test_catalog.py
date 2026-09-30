@@ -45,6 +45,14 @@ from tests.fixtures.pve_responses import CLUSTER_RESOURCES_VM, FakeProxmox
 _LXC_UPID = "UPID:pve-01:0002:000B:65000000:vzcreate:150:gui-team-90@pve:"
 _FLOOR_SHA = "369f9013088f19771a1b95c40ee252fd4c16f91b"
 
+@pytest.fixture(autouse=True)
+def _community_channel_enabled(monkeypatch):
+    """The SSH gate channel is opt-in (F-01); these tests exercise the enabled path."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "community_scripts_enabled", True)
+
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 SNAPSHOT_PATH = BACKEND_DIR / "app" / "catalog" / "snapshot.json"
 
@@ -1012,3 +1020,45 @@ async def test_run_community_script_malformed_input_is_audited(
     assert any(r.result == "failure" for r in rows), (
         "the rejected malformed-input job was not audited"
     )
+
+
+@pytest.mark.asyncio
+async def test_community_script_refused_when_channel_disabled(monkeypatch, client, session_factory) -> None:
+    """P1-07: channel off → 409 with a clear message BEFORE any VMID is reserved."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "community_scripts_enabled", False)
+    from app.provisioning import service
+
+    reserved = []
+
+    async def _no_reserve(**kw):  # noqa: ANN003
+        reserved.append(kw)
+        return 150
+
+    monkeypatch.setattr(service, "reserve_vmid", _no_reserve)
+    from fastapi import HTTPException
+
+    class _P:  # minimal principal
+        class user:  # noqa: N801
+            id = 1
+
+    async def _member(*a, **k):  # noqa: ANN002, ANN003
+        return None
+
+    monkeypatch.setattr(service, "_require_team_membership", _member)
+    from app.provisioning.schemas import CommunityScriptRequest
+
+    req = CommunityScriptRequest(
+        team_id=1, node="pve-01", storage="local", script_slug="docker",
+        hostname="app", cpu_cores=1, memory_mb=512, disk_gb=4,
+    )
+    async with session_factory() as db:
+        with pytest.raises(HTTPException) as exc:
+            await service.enqueue_community_script(
+                db, None, principal=_P(), cluster_id=1, request=req,
+                registry=None, source_ip=None,
+            )
+    assert exc.value.status_code == 409
+    assert "--enable-community-scripts" in exc.value.detail
+    assert reserved == []

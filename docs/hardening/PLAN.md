@@ -113,10 +113,10 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
   `^[A-Za-z0-9]([A-Za-z0-9.-]{0,61}[A-Za-z0-9])?$`. Rutas configurables por `Settings`.
   *Aceptación:* tests unitarios actualizados en `test_connector.py` y `test_ssh_preflight.py` comprueban el argv exacto;
   un `node` con espacios, `-o...` o `;` se rechaza antes de lanzar el proceso.
-- [ ] **P1-06 Tag en el aprovisionamiento.** Asegurar que los LXC creados por el flujo community-scripts salen con el tag
+- [x] **P1-06 Tag en el aprovisionamiento.** Asegurar que los LXC creados por el flujo community-scripts salen con el tag
   `proxmox-gui` (y sin privilegios) para pasar el gate. Localizar el punto de creación en `provisioning_functions.py`.
   *Aceptación:* test en `test_provisioning.py` que verifica el tag en la llamada a PVE.
-- [ ] **P1-07 Estado deshabilitado.** Si el canal no está habilitado, el preflight devuelve `{ok: false, detail}` con un
+- [x] **P1-07 Estado deshabilitado.** Si el canal no está habilitado, el preflight devuelve `{ok: false, detail}` con un
   mensaje claro y el wizard deshabilita solo la ruta community-scripts (VM y LXC simples siguen funcionando).
   *Aceptación:* test del preflight; revisión del componente del wizard que lo consume (`frontend/src`).
 

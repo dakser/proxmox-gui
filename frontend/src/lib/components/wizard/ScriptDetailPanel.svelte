@@ -100,15 +100,13 @@
   // over SSH from the GUI to the hosting node. Before letting the user proceed
   // we preflight that SSH trust (POST /clusters/{id}/verify-ssh). A failure
   // blocks ONLY this community-script path — plain OS-template LXCs and VMs
-  // never open this panel — with a guided fix (the GUI pubkey one-liner). An
+  // never open this panel — with a guided fix (re-run the installer with the
+  // opt-in `--enable-community-scripts` flag; NEVER a bare authorized_keys line,
+  // the host entry must be restricted to the SSH gate — F-01). An
   // inconclusive probe (cluster unreachable) does NOT hard-block; the deploy
   // itself will surface a clear error.
   let sshState = $state<'checking' | 'ok' | 'failed' | 'unknown'>('checking');
   let sshDetail = $state('');
-  let guiPubkey = $state('');
-  const trustOneLiner = $derived(
-    guiPubkey ? `echo '${guiPubkey}' >> /root/.ssh/authorized_keys` : ''
-  );
 
   $effect(() => {
     if (!open) return;
@@ -119,16 +117,6 @@
       .then((res) => {
         sshState = res.ok ? 'ok' : 'failed';
         sshDetail = res.detail ?? '';
-        if (!res.ok && !guiPubkey) {
-          api.clusters
-            .getSshPubkey()
-            .then((pk) => {
-              guiPubkey = pk.public_key;
-            })
-            .catch(() => {
-              /* one-liner just won't render */
-            });
-        }
       })
       .catch(() => {
         // Probe itself failed (cluster unreachable) — don't hard-block.
@@ -236,15 +224,14 @@
           <div class="flex items-start gap-2">
             <TriangleAlert class="text-destructive mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p class="text-[13px] leading-normal">
-              <span class="font-medium">SSH trust isn't configured for this cluster.</span>
-              Community scripts run inside the container over SSH from the GUI, so
-              the GUI's key must be trusted on each node. Run this on every node
-              (as root), then reopen this script:
+              <span class="font-medium">The community-scripts channel isn't enabled for this cluster.</span>
+              Community scripts run inside the container over a restricted SSH
+              channel from the GUI to the Proxmox node. It is off by default: an
+              administrator enables it by re-running the installer on the node
+              with <code class="font-mono">--enable-community-scripts</code>
+              (see deploy/README.md), then reopening this script.
             </p>
           </div>
-          {#if trustOneLiner}
-            <pre class="bg-muted overflow-x-auto rounded-md border border-border p-2 font-mono text-[12px]"><code>{trustOneLiner}</code></pre>
-          {/if}
           <p class="text-muted-foreground text-[12px]">
             Plain OS-template containers and VMs don't need this — only community
             scripts. ({sshDetail})
