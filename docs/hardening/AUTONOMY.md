@@ -5,15 +5,37 @@ solo tengas que revisar anotaciones.
 
 ## Antes de arrancar (lo haces tú, una vez)
 
-1. Haz un **fork** del repositorio a tu cuenta de GitHub y clónalo en una máquina o contenedor **desechable** que no tenga
-   credenciales de tu infraestructura (ni claves SSH a tus nodos PVE, ni tokens, ni acceso a tu red de gestión).
-   La ejecución autónoma escribe código y corre scripts: el aislamiento es la mejor barrera contra un error o contra
-   contenido malicioso dentro del repo.
-2. Copia `docs/hardening/` (FINDINGS.md, PLAN.md, AUTONOMY.md) en tu fork, en la rama base.
-3. Comprueba que la máquina tiene salida a PyPI, npm y GitHub (para instalar herramientas y calcular hashes). Si no la
-   tiene, el plan lo detecta y lo anota en `HUMAN-TODO.md`.
-4. Lanza Claude Code en la raíz del repo. Las opciones de permisos varían según la versión (`claude --help`); usa el modo
-   más permisivo solo dentro del entorno aislado del punto 1.
+Hay dos formas de ejecutar el plan. La recomendada es Claude Code en la web (claude.ai/code): la sesión corre en una
+máquina virtual aislada de Anthropic, sin credenciales de tu infraestructura (tus credenciales de GitHub se sirven por un
+proxy y no entran en la VM), y puedes seguirla y revisar el resultado desde el navegador o el móvil.
+
+### Opción A — Claude Code en la web (recomendada)
+
+1. Haz un **fork** del repositorio a tu cuenta de GitHub. En claude.ai/code conecta GitHub e instala la app de GitHub de
+   Claude en **ese fork** (así la sesión puede clonar, empujar ramas y abrir PR). No la instales ni la uses sobre el repo
+   del autor original.
+2. Sube `docs/hardening/` (FINDINGS.md, PLAN.md, AUTONOMY.md) a la rama base de tu fork.
+3. Entorno de la sesión: crea uno con acceso de red **Custom** que incluya los valores por defecto y, si faltan, estos
+   dominios, necesarios solo para calcular y verificar hashes de descargas fijadas (P3-05): `nodejs.org`, `astral.sh`,
+   `objects.githubusercontent.com`, `release-assets.githubusercontent.com`. Sin ellos el plan no se detiene: deja
+   `TODO-PIN` y lo anota en `HUMAN-TODO.md`.
+4. Crea la sesión sobre tu fork, elige el modo de permisos más permisivo (el entorno ya está aislado) y pega el prompt
+   de arranque de abajo.
+5. Las sesiones se cierran por inactividad y el entorno se reclama, pero al reabrir la sesión desde claude.ai/code se
+   restaura la conversación. No cuentes con procesos en segundo plano: por eso el plan hace un commit por tarea y
+   escribe `LOG.md`. Para retomar, usa el prompt de reanudación.
+6. Lanza el trabajo **por tandas** para no agotar los límites de tu plan, que se comparten con el resto de tu uso de
+   Claude: P0-P2, después P3-P4, después P5-P6, después P7. Cada tanda termina con commit y push de la rama.
+7. Al final revisa el PR de `hardening/main` en GitHub (diff, comentarios en línea) y los archivos de seguimiento.
+
+### Opción B — Máquina propia
+
+1. Fork y clon en una máquina o contenedor **desechable** sin credenciales de tu infraestructura (ni claves SSH a tus
+   nodos PVE, ni tokens, ni acceso a tu red de gestión). La ejecución autónoma escribe código y corre scripts: el
+   aislamiento es la mejor barrera contra un error o contra contenido malicioso dentro del repo.
+2. Copia `docs/hardening/` en la rama base y comprueba que hay salida a PyPI, npm y GitHub.
+3. Lanza Claude Code en la raíz del repo. Las opciones de permisos varían según la versión (`claude --help`); usa el
+   modo más permisivo solo dentro del entorno aislado.
 
 ## Prompt de arranque
 
@@ -25,10 +47,24 @@ Objetivo: endurecer la seguridad y dejarlo instalable desde mi fork, cerrando lo
 docs/hardening/FINDINGS.md. Este trabajo NO usa el flujo GSD ni los comandos /gsd-* y NO consulta
 .planning/STATE.md: las instrucciones de CLAUDE.md sobre GSD no aplican a esta ejecución; el resto de
 CLAUDE.md (restricciones de Proxmox, multi-tenancy, commits atómicos) sí aplica.
+Trabaja en la rama hardening/main (créala desde la rama base si no existe) y empújala al remoto al cerrar
+cada fase; el remoto es mi fork, nunca el repositorio del autor original.
 Ejecuta las fases P0 a P7 en orden, sin pedirme confirmación. Cuando algo requiera una decisión, aplica el
 valor por defecto del registro de decisiones y anótalo en DECISIONS.md. Cuando algo requiera una acción
 humana, prepara todo lo demás y anótalo en HUMAN-TODO.md. Termina con docs/hardening/HARDENING-REPORT.md.
+Fases de esta tanda: P0 a P2.   (cambia este renglón en cada tanda)
 Empieza por P0.
+```
+
+## Prompt de reanudación
+
+Úsalo si la sesión expiró, si empiezas la siguiente tanda o si algo se interrumpió:
+
+```
+Retoma el trabajo de endurecimiento. Lee docs/hardening/AUTONOMY.md, PLAN.md, LOG.md, DECISIONS.md,
+BLOCKED.md y HUMAN-TODO.md. Comprueba con git log y git status en qué punto está hardening/main, verifica que
+scripts/check.sh sigue verde y continúa desde la primera tarea sin marcar de PLAN.md. No repitas tareas ya
+marcadas [x] salvo que su aceptación falle. Fases de esta tanda: <indica cuáles>.
 ```
 
 ## Reglas de operación
@@ -38,8 +74,9 @@ Empieza por P0.
   `feat(security):`, `fix(deploy):`, `test(deploy):`, `ci:`, `docs(hardening):`, `chore:`.
 - Cada commit marca la tarea `[x]` en `PLAN.md` y añade una línea a `docs/hardening/LOG.md` (fecha, ID, resultado de la
   aceptación, comando ejecutado). Ejecuta `scripts/check.sh` (a partir de P0-04) antes de cada commit.
-- Al terminar cada fase: commit de cierre, resumen de 5 líneas en `LOG.md` y, si hay remoto configurado con permisos, `git push`.
-  Si no hay permisos de push, no es un bloqueo: los commits quedan locales.
+- Al terminar cada fase: commit de cierre, resumen de 5 líneas en `LOG.md` y `git push` de `hardening/main` a tu fork.
+  Verifica antes con `git remote -v` que el remoto es tu fork; si no tiene permisos de push, no es un bloqueo: los commits
+  quedan locales y se anota en `HUMAN-TODO.md`. Nunca empujes al repositorio del autor original.
 - Nunca reescribir historia, nunca `--force`, nunca `--no-verify`. No tocar `.planning/` (regla del proyecto).
 
 **Calidad**
