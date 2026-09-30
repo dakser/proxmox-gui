@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # it in X-Setup-Token. Unset = no token (dev/tests only).
     setup_token_file: Path | None = None
 
+    # WebSocket Origin allow-list (F-12). Empty = only same-origin (Origin host == Host header).
+    allowed_origins: list[str] = []
+
+    # Hosts the API answers to (TrustedHostMiddleware, P5-04). Empty = not enforced (dev/tests).
+    allowed_hosts: list[str] = []
+
+    # Serve /api/docs, /api/redoc and /api/openapi.json (D11). Off in production.
+    enable_docs: bool = False
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False

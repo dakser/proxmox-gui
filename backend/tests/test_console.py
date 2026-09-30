@@ -116,6 +116,9 @@ async def _add_user_to_team(session_factory, *, user_id: int, team_id: int):
         await session.commit()
 
 
+WS_ORIGIN = {"origin": "http://testserver"}  # same-origin browser handshake (F-12)
+
+
 def _make_fake_for_mint():
     """A FakeProxmox pre-wired for a vncproxy mint on vmid 100 (qemu) / 200 (lxc).
 
@@ -434,7 +437,7 @@ def test_relay_unauthenticated_closed_1008(session_factory):
 
     with TestClient(app) as tc:
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect("/api/v1/ws/console/1/vms/100") as ws:
+            with tc.websocket_connect("/api/v1/ws/console/1/vms/100", headers=WS_ORIGIN) as ws:
                 ws.receive_bytes()
         assert exc_info.value.code == 1008
 
@@ -460,9 +463,7 @@ async def test_relay_cross_tenant_closed(client, session_factory):
             with TestClient(app, cookies=cookies) as tc:
                 _reinstall_test_cipher()
                 try:
-                    with tc.websocket_connect(
-                        f"/api/v1/ws/console/{cluster_id}/vms/100"
-                    ) as ws:
+                    with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100", headers=WS_ORIGIN) as ws:
                         ws.receive_bytes()
                 except WebSocketDisconnect as exc:
                     return exc.code
@@ -497,9 +498,7 @@ async def test_relay_missing_vncproxy_params_closed(client, session_factory):
             with TestClient(app, cookies=cookies) as tc:
                 _reinstall_test_cipher()
                 try:
-                    with tc.websocket_connect(
-                        f"/api/v1/ws/console/{cluster_id}/vms/100"
-                    ) as ws:
+                    with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100", headers=WS_ORIGIN) as ws:
                         ws.receive_bytes()
                 except WebSocketDisconnect as exc:
                     return exc.code
@@ -540,9 +539,7 @@ async def test_relay_opens_upstream_vncwebsocket(client, session_factory):
                 # may surface as a WebSocketDisconnect at connect time. Either
                 # way the upstream URL was recorded by _FakeConnectCM.
                 try:
-                    with tc.websocket_connect(
-                        f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}"
-                    ) as ws:
+                    with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}", headers=WS_ORIGIN) as ws:
                         ws.receive_bytes()
                 except Exception:  # noqa: BLE001 — clean close after upstream end
                     pass
@@ -582,9 +579,7 @@ async def test_relay_encodes_vncticket_exactly_once(client, session_factory):
                 # The relay opens the upstream WS BEFORE accept(); a fast
                 # upstream close may surface as a connect-time disconnect.
                 try:
-                    with tc.websocket_connect(
-                        f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}"
-                    ) as ws:
+                    with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}", headers=WS_ORIGIN) as ws:
                         ws.receive_bytes()
                 except Exception:  # noqa: BLE001 — clean close after upstream end
                     pass
@@ -634,9 +629,7 @@ async def test_relay_pumps_bytes_bidirectionally(client, session_factory):
         ):
             with TestClient(app, cookies=cookies) as tc:
                 _reinstall_test_cipher()
-                with tc.websocket_connect(
-                    f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}"
-                ) as ws:
+                with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}", headers=WS_ORIGIN) as ws:
                     ws.send_bytes(b"rfb-from-browser")
                     received = ws.receive_bytes()
                     return received
@@ -677,9 +670,7 @@ async def test_relay_closes_browser_when_upstream_closes(client, session_factory
         ):
             with TestClient(app, cookies=cookies) as tc:
                 _reinstall_test_cipher()
-                with tc.websocket_connect(
-                    f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}"
-                ) as ws:
+                with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}", headers=WS_ORIGIN) as ws:
                     try:
                         ws.receive_bytes()
                     except WebSocketDisconnect:
@@ -722,9 +713,7 @@ async def test_relay_upstream_uses_per_cluster_tls_posture(client, session_facto
                 # The relay opens the upstream WS BEFORE accept(); a fast
                 # upstream close may surface as a connect-time disconnect.
                 try:
-                    with tc.websocket_connect(
-                        f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}"
-                    ) as ws:
+                    with tc.websocket_connect(f"/api/v1/ws/console/{cluster_id}/vms/100{_RELAY_QS}", headers=WS_ORIGIN) as ws:
                         ws.receive_bytes()
                 except Exception:  # noqa: BLE001 — clean close after upstream end
                     pass
@@ -747,7 +736,7 @@ def test_relay_unknown_kind_closed_1008(session_factory):
     with TestClient(app) as tc:
         # No session either — but the kind guard would also reject this.
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect("/api/v1/ws/console/1/widgets/100") as ws:
+            with tc.websocket_connect("/api/v1/ws/console/1/widgets/100", headers=WS_ORIGIN) as ws:
                 ws.receive_bytes()
         assert exc_info.value.code == 1008
 
