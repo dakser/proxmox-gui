@@ -129,6 +129,40 @@ describe('api.setup.status', () => {
   });
 });
 
+describe('api.setup.createAdmin (setup token, F-06)', () => {
+  it('sends the token in the X-Setup-Token header, never in the body or URL', async () => {
+    const seen: { url: string; init: RequestInit } = { url: '', init: {} };
+    globalThis.fetch = vi.fn(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init ?? {};
+      return new Response(JSON.stringify({ user_id: 1, personal_team_id: 1, username: 'alice' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as typeof fetch;
+    await api.setup.createAdmin(
+      { username: 'alice', email: 'a@example.com', password: 'hunter12hunter12' },
+      { setupToken: '  tok-123\n' }
+    );
+    expect(new Headers(seen.init.headers).get('X-Setup-Token')).toBe('tok-123');
+    expect(String(seen.init.body)).not.toContain('tok-123');
+    expect(seen.url).not.toContain('tok-123');
+  });
+
+  it('sends no token header when none is given (dev installs)', async () => {
+    let headers = new Headers();
+    globalThis.fetch = vi.fn(async (_url, init) => {
+      headers = new Headers(init?.headers);
+      return new Response(JSON.stringify({ user_id: 1, personal_team_id: 1, username: 'a' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }) as typeof fetch;
+    await api.setup.createAdmin({ username: 'alice', email: 'a@example.com', password: 'x'.repeat(12) });
+    expect(headers.has('X-Setup-Token')).toBe(false);
+  });
+});
+
 describe('api.setup.createAdmin', () => {
   it('POSTs the body and returns the created admin payload', async () => {
     const seen: { url: string; init: RequestInit } = { url: '', init: {} };

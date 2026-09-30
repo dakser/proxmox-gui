@@ -114,3 +114,28 @@ async def test_real_redis_unix_socket_round_trip_with_json(tmp_path, monkeypatch
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+def test_rate_limiter_uses_the_unix_socket_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The limiter used to hard-code TCP 6379: with Redis on a socket only it silently fell back to
+    a process-local bucket."""
+    import redis
+
+    from app.security import rate_limit
+
+    seen = {}
+
+    class FakeRedis:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(redis, "Redis", FakeRedis)
+    monkeypatch.setattr(settings, "redis_socket", "/run/redis/redis-server.sock")
+    monkeypatch.setattr(rate_limit, "_client", None)
+    assert rate_limit._get_client() is not None
+    assert seen["unix_socket_path"] == "/run/redis/redis-server.sock"
+    assert "host" not in seen and "port" not in seen
+    monkeypatch.setattr(rate_limit, "_client", None)

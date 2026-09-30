@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     updater_path: Path = Path("/usr/local/sbin/proxmox-gui-updater")
     release_conf_path: Path = Path("/etc/proxmox-gui/release.conf")
 
+    # First-run setup token (F-06). Set by the systemd units; when set, POST /setup/admin requires
+    # it in X-Setup-Token. Unset = no token (dev/tests only).
+    setup_token_file: Path | None = None
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False

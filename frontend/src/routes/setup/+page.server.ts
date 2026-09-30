@@ -16,5 +16,5 @@ export const load: PageServerLoad = async ({ fetch }) => {
   if (status && !status.no_admin_yet) {
     throw redirect(303, '/login');
   }
-  return {};
+  return { tokenRequired: status?.token_required === true };
 };

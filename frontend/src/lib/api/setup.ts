@@ -39,10 +39,14 @@ export async function status(opts?: MaybeFetch): Promise<SetupStatus | null> {
  */
 export async function createAdmin(
   body: SetupAdminRequest,
-  opts?: MaybeFetch
+  opts?: MaybeFetch & { setupToken?: string }
 ): Promise<SetupAdminResponse> {
+  // The one-time setup token (read on the server with `cat /etc/proxmox-gui/setup-token`) travels
+  // in a header, never in the body or URL (F-06).
+  const headers: Record<string, string> = {};
+  if (opts?.setupToken) headers['X-Setup-Token'] = opts.setupToken.trim();
   return apiJson<SetupAdminResponse>(
     '/setup/admin',
-    withFetch(opts, { method: 'POST', body: { ...body } })
+    withFetch(opts, { method: 'POST', body: { ...body }, headers })
   );
 }

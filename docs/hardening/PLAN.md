@@ -218,7 +218,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P5 — Endurecimiento de la aplicación (F-06, F-09, F-11, F-12, F-13)
 
-- [ ] **P5-01 Token de setup en la API.** `POST /api/v1/setup/admin` exige `X-Setup-Token`; comparación con `hmac.compare_digest`;
+- [x] **P5-01 Token de setup en la API.** `POST /api/v1/setup/admin` exige `X-Setup-Token`; comparación con `hmac.compare_digest`;
   límite de tasa; sin fuga de información en errores; `GET /setup/status` indica `token_required` pero nada más. El wizard del
   frontend añade el paso del token. Tests en `test_setup.py`: sin token, token erróneo, token correcto, tras crear admin → 409.
 - [x] **P5-02 Redis/arq.** Configurar `RedisSettings` según P3-08 y fijar `job_serializer`/`job_deserializer` JSON tanto al encolar

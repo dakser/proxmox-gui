@@ -38,7 +38,7 @@ async def test_setup_status_on_empty_db_returns_no_admin_yet_true(
     response = await client.get("/api/v1/setup/status")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body == {"no_admin_yet": True, "cluster_count": 0}
+    assert body == {"no_admin_yet": True, "cluster_count": 0, "token_required": False}
 
 
 @pytest.mark.asyncio
@@ -60,7 +60,7 @@ async def test_setup_status_after_admin_returns_no_admin_yet_false(
     status_resp = await client.get("/api/v1/setup/status")
     assert status_resp.status_code == 200
     body = status_resp.json()
-    assert body == {"no_admin_yet": False, "cluster_count": 0}
+    assert body == {"no_admin_yet": False, "cluster_count": 0, "token_required": False}
 
 
 # ----------------------------------------------------------------------------
@@ -395,3 +395,96 @@ async def test_setup_cluster_route_does_not_exist(client, session_factory):
     # Either 404 (no route) or 405 (wrong method on a partial route) —
     # both are acceptable; what we forbid is a 200/201/202.
     assert response.status_code in (404, 405), response.text
+
+
+# ----------------------------------------------------------------------------
+# F-06 — setup token (P5-01)
+# ----------------------------------------------------------------------------
+
+_ADMIN = {"username": "rootadmin", "email": "rootadmin@example.com", "password": "supersecret-123"}
+
+
+@pytest.fixture()
+def setup_token(tmp_path, monkeypatch):
+    from app.config import settings
+
+    f = tmp_path / "setup-token"
+    f.write_text("s3cr3t-token-value\n")
+    monkeypatch.setattr(settings, "setup_token_file", f)
+    return "s3cr3t-token-value"
+
+
+@pytest.mark.asyncio
+async def test_setup_admin_without_token_is_refused(client, session_factory, setup_token):
+    r = await client.post("/api/v1/setup/admin", json=_ADMIN)
+    assert r.status_code == 403
+    assert (await client.get("/api/v1/setup/status")).json()["no_admin_yet"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["", "wrong", "s3cr3t-token-valu", "s3cr3t-token-value2", " s3cr3t-token-value", "A" * 5000])
+async def test_setup_admin_with_wrong_token_is_refused(client, session_factory, setup_token, bad):
+    r = await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": bad})
+    assert r.status_code == 403
+    assert "s3cr3t" not in r.text
+    assert (await client.get("/api/v1/setup/status")).json()["no_admin_yet"] is True
+
+
+@pytest.mark.asyncio
+async def test_setup_admin_with_correct_token_then_409(client, session_factory, setup_token):
+    ok = await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": setup_token})
+    assert ok.status_code == 201, ok.text
+    again = await client.post(
+        "/api/v1/setup/admin", json={**_ADMIN, "username": "second"}, headers={"X-Setup-Token": setup_token}
+    )
+    assert again.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_no_state_oracle_without_the_token(client, session_factory, setup_token):
+    """After setup, a caller WITHOUT the token learns nothing beyond a generic 403."""
+    await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": setup_token})
+    r = await client.post("/api/v1/setup/admin", json={**_ADMIN, "username": "xyz2"})
+    assert r.status_code == 403
+    assert r.json() == {"detail": "Invalid setup token"}
+
+
+@pytest.mark.asyncio
+async def test_status_reports_token_required_but_never_the_token(client, session_factory, setup_token):
+    body = (await client.get("/api/v1/setup/status")).json()
+    assert body["token_required"] is True
+    assert setup_token not in str(body)
+    assert set(body) == {"no_admin_yet", "cluster_count", "token_required"}
+
+
+@pytest.mark.asyncio
+async def test_status_token_not_required_in_dev(client, session_factory):
+    assert (await client.get("/api/v1/setup/status")).json()["token_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_setup_is_rate_limited_per_ip(client, session_factory, setup_token):
+    codes = []
+    for _ in range(8):
+        r = await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": "nope"})
+        codes.append(r.status_code)
+    assert 429 in codes and codes[:5] == [403] * 5
+    # even the right token is throttled once the budget is spent (no free guesses hidden behind it)
+    r = await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": setup_token})
+    assert r.status_code == 429
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "\n", "   "])
+async def test_unprovisioned_token_file_fails_closed(client, session_factory, tmp_path, monkeypatch, content):
+    from app.config import settings
+
+    f = tmp_path / "t"
+    f.write_text(content)
+    monkeypatch.setattr(settings, "setup_token_file", f)
+    r = await client.post("/api/v1/setup/admin", json=_ADMIN, headers={"X-Setup-Token": ""})
+    assert r.status_code == 503
+    monkeypatch.setattr(settings, "setup_token_file", tmp_path / "does-not-exist")
+    r = await client.post("/api/v1/setup/admin", json=_ADMIN)
+    assert r.status_code == 503
+    assert (await client.get("/api/v1/setup/status")).json()["no_admin_yet"] is True
