@@ -122,6 +122,8 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
 
 Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (opt-in)`.
 
+- [ ] **P1-08 Gate: residuos (F-16).** Escalar `TERM`→`KILL` tras gracia; escapar/limitar todo dato externo en el log; documentar en `SSH-GATE.md` el riesgo residual de la tag; test para cada punto.
+
 ## P2 — Puerta de entrada: `install.sh` (F-04 parcial, F-07, F-08)
 
 - [x] **P2-01 Validación de entradas.** Parser que exige valor para cada flag; `CTID`, `CPU`, `RAM_MB`, `DISK_GB` numéricos y
@@ -150,7 +152,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   servicio solo lee y ejecuta. Instalar el backend **no editable** (sin `-e`); `--no-deps` para el paquete propio.
   *Aceptación:* test en arnés: tras el bootstrap simulado, `find releases -not -user root` vacío; ningún archivo escribible
   por grupo/otros.
-- [ ] **P3-02 Datos y secretos.** `/var/lib/proxmox-gui` (`proxmox-gui`, 0750). `/etc/proxmox-gui` `root:proxmox-gui` 0750 y
+- [x] **P3-02 Datos y secretos.** `/var/lib/proxmox-gui` (`proxmox-gui`, 0750). `/etc/proxmox-gui` `root:proxmox-gui` 0750 y
   archivos secretos `root:proxmox-gui` 0440 (la app los lee, no los reemplaza). Ajustar `gen-master-key.sh` y
   `gen-jwt-secret.sh` (crear con `umask 077`, `install -m` atómico, propietario root) y verificar que el chequeo de permisos de
   `app/core/cipher.py` (`st_mode & 0o077`) sigue satisfecho o actualizarlo con test.
@@ -211,6 +213,9 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P4-05 Ruta CLI.** `install.sh --update` deja de tener lógica propia: verifica la release en el host y escribe la solicitud /
   invoca el updater dentro del CT. Eliminar `deploy/lxc/update.sh` (o dejarlo como wrapper de una línea hacia el updater).
 
+- [ ] **P4-06 Updater seguro frente a la app (F-15, F-17).** Mover backups/staging a `/var/lib/proxmox-gui-updater` (`root:root` 0700); leer `update/request` con un único fd sin seguir enlaces; no usar rutas de la app para escritura de root salvo creando ficheros con `install`/`mktemp` dentro de un directorio root y `rename` atómico; sanear y acotar `status.json` y mensajes; extraer el tarball con el mismo intérprete que lo valida y rechazar miembros que no sean fichero/directorio.
+  *Aceptación:* tests del arnés con symlinks plantados en `update/`, `backups/`, `request` y `${DB_FILE}.restore` que demuestren que root no toca el destino del enlace; tarball con hardlink/duplicados/`..` rechazado.
+
 ## P5 — Endurecimiento de la aplicación (F-06, F-09, F-11, F-12, F-13)
 
 - [ ] **P5-01 Token de setup en la API.** `POST /api/v1/setup/admin` exige `X-Setup-Token`; comparación con `hmac.compare_digest`;
@@ -250,6 +255,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   por defecto en `install.sh`, `selfupdate/service.py`, `release.conf`, README). Ninguna referencia a `chloepriceless/*` debe quedar como origen de código
   ejecutable; sí en `LICENSE`/créditos.
   *Aceptación:* `grep -rn "chloepriceless" --include=*.sh --include=*.py --include=*.yml --include=*.conf .` no devuelve nada ejecutable.
+- [ ] **P6-06 Escaneos bloqueantes.** Quitar `continue-on-error` de bandit, pip-audit y `pnpm audit` en `ci.yml` (pip-audit ya en 0); registrar excepciones puntuales en `SCANS-BASELINE.md`.
 - [ ] **P6-05 Documentación de instalación segura.** `deploy/README.md` y `README.md`: flujo recomendado (descargar `install.sh` a un archivo, comparar su
   SHA-256 publicado en la release, leer, ejecutar con `--release vX.Y.Z`), modelo de amenazas resumido, qué implica habilitar community-scripts,
   procedimiento de rotación de `master.key`/JWT, y desinstalación.
@@ -257,7 +263,8 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 ## P7 — Verificación integral e informe
 
 - [ ] **P7-01 Suite completa.** `scripts/check.sh` en verde; comparar con `BASELINE.md`; cero regresiones. Cobertura de los módulos tocados no menor que en la línea base.
-- [ ] **P7-02 Prueba de humo del instalador en contenedor con systemd.** Si hay `docker` con daemon disponible: imagen Debian 12 con systemd
+- [ ] **P7-02 Prueba de humo del instalador con systemd real.** *(revisada)* Además del script local `deploy/tests/smoke-systemd.sh`, añadir a `ci.yml` un job `smoke-systemd` en runners de GitHub (ubuntu, Docker con daemon disponible allí; imagen Debian 12 con systemd) que ejecute la prueba de abajo y suba logs como artefacto. Es el nivel "entorno real sin PVE".
+  Detalle original: Si hay `docker` con daemon disponible: imagen Debian 12 con systemd
   (`--privileged --cgroupns=host`), ejecutar `bootstrap.sh` con un tarball de release local de prueba, comprobar que arrancan `caddy`, `redis`,
   API, worker y frontend, que `GET https://127.0.0.1/api/v1/health` responde, que `/setup` exige token y que `systemd-analyze security` no empeora.
   Si no hay docker, dejar el script `deploy/tests/smoke-systemd.sh` listo y anotarlo en `HUMAN-TODO.md`. Esta prueba no sustituye a un PVE real.

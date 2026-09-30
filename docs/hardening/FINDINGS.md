@@ -151,6 +151,31 @@ Media = requiere una condición previa (app comprometida, operador engañado). B
 - `provisioning_functions.py` construye `bash -c "$(curl -fsSL <url>)"` para community-scripts: el código dice que
   el slug y la URL están validados y anclados a un commit; confirmar con un test que un slug hostil no llega al shell.
 
+## Hallazgos de la revisión independiente de P0–P4 (segunda pasada)
+
+### F-15 — El updater de root opera dentro de directorios que controla la app (Alta)
+`/usr/local/sbin/proxmox-gui-updater` corre como root pero lee/escribe en `/var/lib/proxmox-gui/{update,backups}`, que
+pertenecen a `proxmox-gui` (el usuario que se asume comprometible).
+- Symlink/TOCTOU: la app puede reemplazar `backups/`, `update/` o un fichero dentro por un enlace simbólico; `chown`, `cp -f`
+  (`${DB_FILE}.restore`) y `sqlite3 .backup` de root siguen el enlace → escritura/chown/chmod arbitrarios como root.
+- `request`: se comprueba `-f && ! -L` y luego se lee (ventana TOCTOU); abrir una sola vez con `O_NOFOLLOW`/fd.
+- `status.json` y el mensaje de solicitud inválida reflejan datos controlados por la app; sanear y limitar longitud.
+**Mitigación:** ver P4-06 (directorios de trabajo de root fuera del alcance de la app: `/var/lib/proxmox-gui-updater`
+`root:root 0700` para backups y staging; sólo `update/request` en zona app y leído con fd único, sin seguir enlaces;
+restore mediante copia a fichero creado por root con `install`, nunca `cp -f` sobre rutas de la app).
+
+### F-16 — Gate SSH del nodo: residuos (Media)
+- `pct config` del CT se lee sin confinar el origen (la tag `proxmox-gui` la puede poner cualquier admin PVE: riesgo residual a documentar).
+- El timeout envía `TERM` al grupo y no escala a `KILL`.
+- Los argumentos/comandos rechazados se registran sin escapar (inyección de líneas en el log).
+**Mitigación:** P1-08.
+
+### F-17 — Diferencial validador/extractor del tarball (Media)
+`validate_tarball` (Python `tarfile`) y `tar -xzf` (GNU) pueden interpretar distinto ciertos miembros (rutas duplicadas,
+hardlinks a miembros previos, `./` y `..` normalizados, PAX/GNU long names). **Mitigación:** extraer con el mismo
+intérprete que valida (Python, `filter='data'`, sin symlinks/hardlinks/dispositivos) o rechazar todo tipo de miembro distinto
+de fichero regular/directorio; ver P4-06.
+
 ## Baja
 
 ### F-14 — Higiene
