@@ -98,7 +98,7 @@ axe-core half passes).
 Run **on the Proxmox VE 8.x host** (NOT inside an existing LXC):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/chloepriceless/proxmox-gui/master/deploy/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
 ```
 
 The installer creates a fresh unprivileged LXC, drops in a service user,
@@ -109,7 +109,7 @@ Tune resources via env or flags (full list in [`deploy/README.md`](./deploy/READ
 
 ```bash
 CPU=4 RAM_MB=4096 DISK_GB=20 STORAGE=local-zfs \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/chloepriceless/proxmox-gui/master/deploy/install.sh)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
 ```
 
 ## Local dev

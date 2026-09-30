@@ -251,7 +251,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P6-03 Firma local.** `scripts/release-sign.sh <tag>`: descarga `SHA256SUMS` del borrador, firma con `ssh-keygen -Y sign -n proxmox-gui-release`,
   verifica localmente y sube `SHA256SUMS.sig`. `deploy/release-signers` con **marcador** `REEMPLAZAR-CON-TU-CLAVE-PUBLICA` que hace fallar el
   instalador y `scripts/check.sh` hasta que el dueño lo sustituya (HUMAN-TODO).
-- [ ] **P6-04 Parametrizar el fork.** `REPO_URL` por defecto = el `origin` del fork (script `scripts/set-fork.sh <owner/repo>` reescribe los valores
+- [x] **P6-04 Parametrizar el fork.** `REPO_URL` por defecto = el `origin` del fork (script `scripts/set-fork.sh <owner/repo>` reescribe los valores
   por defecto en `install.sh`, `selfupdate/service.py`, `release.conf`, README). Ninguna referencia a `chloepriceless/*` debe quedar como origen de código
   ejecutable; sí en `LICENSE`/créditos.
   *Aceptación:* `grep -rn "chloepriceless" --include=*.sh --include=*.py --include=*.yml --include=*.conf .` no devuelve nada ejecutable.

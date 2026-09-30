@@ -29,7 +29,7 @@ Caddy with auto-HTTPS (self-signed for LAN; Let's Encrypt-ready for public).
 Run **on the Proxmox VE 8.x host** (NOT inside an LXC):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/chloepriceless/proxmox-gui/master/deploy/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
 ```
 
 > If the repo is private, replace the raw-content URL with a
@@ -62,14 +62,14 @@ All settings have sensible defaults. Override via env vars **or** flags
 | Disk (GB)   | `DISK_GB`    | `--disk`       | `8`                                  |
 | Storage     | `STORAGE`    | `--storage`    | `local-lvm`                          |
 | Bridge      | `BRIDGE`     | `--bridge`     | `vmbr0`                              |
-| Repo URL    | `REPO_URL`   | `--repo-url`   | `https://github.com/chloepriceless/proxmox-gui` |
+| Repo URL    | `REPO_URL`   | `--repo-url`   | `https://github.com/dakser/proxmox-gui` |
 | Git ref     | `RELEASE`    | `--release`    | `master`                             |
 
 Example with a few overrides:
 
 ```bash
 CPU=4 RAM_MB=4096 STORAGE=local-zfs \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/chloepriceless/proxmox-gui/master/deploy/install.sh)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
 ```
 
 ### Security configuration
