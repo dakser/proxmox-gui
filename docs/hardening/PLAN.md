@@ -204,7 +204,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P4-03 Unidades.** `proxmox-gui-updater.path` (vigila `/var/lib/proxmox-gui/update/request`) y `proxmox-gui-updater.service`
   (`Type=oneshot`, root, con `ProtectSystem=strict` y `ReadWritePaths` mínimos, `PrivateTmp`, `NoNewPrivileges`). `release.conf` fijado
   por el bootstrap desde el repo/tag con el que se instaló (D2/F-04: nunca el upstream por defecto).
-- [ ] **P4-04 Worker sin privilegios.** Reescribir `run_self_update` en `selfupdate_functions.py`: valida la versión pedida, escribe la
+- [x] **P4-04 Worker sin privilegios.** Reescribir `run_self_update` en `selfupdate_functions.py`: valida la versión pedida, escribe la
   solicitud, sondea `status.json` y refleja los estados en la fila del job. Sin `subprocess`, sin `sudo`, sin extraer nada.
   Adaptar `app/selfupdate/service.py` (manifest desde tu repo, configurable) y `test_selfupdate.py`.
   *Aceptación:* `pytest backend/tests/test_selfupdate.py` verde con casos nuevos: solicitud inválida, updater ausente, estado `failed`.

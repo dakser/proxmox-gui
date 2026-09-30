@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     # Redis (arq). Production: unix socket path set by the systemd units; unset = loopback TCP.
     redis_socket: str | None = None
 
+    # Self-update handshake with the root updater (docs/hardening/UPDATER.md). The worker only
+    # writes a request file and reads the updater's status file; it never runs anything.
+    update_request_path: Path = Path("/var/lib/proxmox-gui/update/request")
+    update_status_path: Path = Path("/run/proxmox-gui-updater/status.json")
+    updater_path: Path = Path("/usr/local/sbin/proxmox-gui-updater")
+    release_conf_path: Path = Path("/etc/proxmox-gui/release.conf")
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False
