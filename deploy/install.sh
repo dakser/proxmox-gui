@@ -518,7 +518,7 @@ wait_for_ct_ip || die "LXC did not acquire an IPv4 address within 60s (check: pc
 
 stage_release_in_ct
 info "Running bootstrap.sh from the verified release inside the LXC..."
-pct exec "$CTID" -- env PGUI_RELEASE_TAG="$RELEASE" PGUI_SRC_DIR=/root/pgui-src \
+pct exec "$CTID" -- env PGUI_RELEASE_TAG="$RELEASE" PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL="$REPO_URL" \
     bash /root/pgui-src/deploy/lxc/bootstrap.sh
 
 if [[ "$ENABLE_COMMUNITY" -eq 1 ]]; then enable_community_scripts; fi

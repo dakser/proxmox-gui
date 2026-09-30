@@ -1,9 +1,8 @@
-# /etc/systemd/system/proxmox-gui-frontend.service
-# SvelteKit adapter-node server. Caddy reverse-proxies / → 127.0.0.1:3000.
-#
-# The build/ directory is committed to the repo (pre-built artefact),
-# so the LXC never has to run pnpm / vite. Node 18 (from Debian) just
-# runs the bundled JS entry point.
+# /etc/systemd/system/proxmox-gui-frontend.service   (root:root 0644, installed by bootstrap.sh)
+# SvelteKit adapter-node server; Caddy reverse-proxies / -> 127.0.0.1:3000.
+# Runs as `proxmox-gui-web`: no access to /etc/proxmox-gui, /var/lib/proxmox-gui or Redis
+# (F-09) — a compromise of the Node process yields no secrets. Read-only, no writes.
+# MemoryDenyWriteExecute stays OFF: V8's JIT needs W+X pages.
 
 [Unit]
 Description=Proxmox GUI Frontend (SvelteKit adapter-node)
@@ -12,25 +11,43 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=proxmox-gui
-Group=proxmox-gui
-# DEPLOY-04: WorkingDirectory + ExecStart resolve through /opt/proxmox-gui/current,
-# a symlink swapped atomically by deploy/lxc/update.sh.
+User=proxmox-gui-web
+Group=proxmox-gui-web
 WorkingDirectory=/opt/proxmox-gui/current/frontend/build
 Environment=HOST=127.0.0.1
 Environment=PORT=3000
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node /opt/proxmox-gui/current/frontend/build/index.js
+ExecStart=/opt/node/bin/node /opt/proxmox-gui/current/frontend/build/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# hardening (ASVS V14.1)
+# --- hardening (F-12) ---
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+PrivateDevices=true
+ProtectSystem=strict
 ProtectHome=true
+InaccessiblePaths=-/etc/proxmox-gui -/var/lib/proxmox-gui -/run/redis
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProcSubset=pid
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

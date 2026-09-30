@@ -1,0 +1,23 @@
+# /etc/systemd/system/proxmox-gui-caddy-render.service   (root:root 0644)
+# Renders /etc/caddy/Caddyfile from the release template with the LXC's CURRENT address
+# (or the FQDN in /etc/proxmox-gui/site.env) every time Caddy starts, so a DHCP change
+# never leaves TLS serving a stale IP (F-12). Runs as root; the script and template live in
+# the root-owned release tree.
+
+[Unit]
+Description=Render Caddyfile for the Proxmox GUI
+After=network-online.target
+Wants=network-online.target
+Before=caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/proxmox-gui-caddy-render
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ReadWritePaths=/etc/caddy
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

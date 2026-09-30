@@ -1,7 +1,5 @@
-# /etc/systemd/system/proxmox-gui-worker.service
-# Phase 3: arq is now wired — the ExecStart below runs the arq worker.
-# D-17 — three systemd units inside the LXC; this is the worker unit.
-# It depends on the embedded redis-server (loopback-bound, 4th runtime service).
+# /etc/systemd/system/proxmox-gui-worker.service   (root:root 0644, installed by bootstrap.sh)
+# arq worker: UPID polling, orphan reaper, job execution. Same privilege model as the API.
 
 [Unit]
 Description=Proxmox GUI Worker (arq)
@@ -13,26 +11,46 @@ Requires=redis-server.service
 Type=simple
 User=proxmox-gui
 Group=proxmox-gui
-# DEPLOY-04: WorkingDirectory + ExecStart resolve through /opt/proxmox-gui/current,
-# a symlink swapped atomically by deploy/lxc/update.sh. The per-release venv
-# lives inside the release dir so the worker rebases onto the new release
-# only when it is restarted LAST by run_self_update (after the health check
-# of the api on the new release passes).
+SupplementaryGroups=redis
 WorkingDirectory=/opt/proxmox-gui/current/backend
 Environment=PROXMOX_GUI_MASTER_KEY_PATH=/etc/proxmox-gui/master.key
 Environment=PROXMOX_GUI_DATABASE_URL=sqlite+aiosqlite:////var/lib/proxmox-gui/app.db
+Environment=PROXMOX_GUI_JWT_SECRET_FILE=/etc/proxmox-gui/jwt.secret
+Environment=PROXMOX_GUI_PAT_PEPPER_FILE=/etc/proxmox-gui/pat.pepper
+Environment=PROXMOX_GUI_REDIS_SOCKET=/run/redis/redis-server.sock
+EnvironmentFile=-/etc/proxmox-gui/gui.env
 ExecStart=/opt/proxmox-gui/current/.venv/bin/arq app.jobs.worker.WorkerSettings
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# hardening (ASVS V14.1) — matches the api unit
+# --- hardening (F-12) — identical to the API unit ---
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+PrivateDevices=true
+ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/proxmox-gui /var/log/proxmox-gui
+ReadWritePaths=/var/lib/proxmox-gui
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProcSubset=pid
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

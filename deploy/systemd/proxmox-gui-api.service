@@ -1,41 +1,64 @@
-# /etc/systemd/system/proxmox-gui-api.service
-# Phase 1 (Foundation): uvicorn-served FastAPI on 127.0.0.1:8000.
-# D-17 — three systemd units inside the LXC; this is the API unit.
-# Hardening (ASVS V14.1): NoNewPrivileges, PrivateTmp, ProtectSystem=full,
-# ProtectHome, and a tight ReadWritePaths confined to the data + log dirs.
-# Logs flow to journald (`journalctl -u proxmox-gui-api`).
+# /etc/systemd/system/proxmox-gui-api.service   (root:root 0644, installed by bootstrap.sh)
+# uvicorn-served FastAPI on 127.0.0.1:8000, behind Caddy.
+# Runs as the unprivileged `proxmox-gui` user; the code tree is root-owned and read-only
+# to it (F-02). The only writable path is /var/lib/proxmox-gui (database, backups, the
+# updater request file). Redis is reached over a unix socket via the `redis` group (D7).
+# systemd-analyze security score is recorded in docs/hardening/LOG.md.
 
 [Unit]
 Description=Proxmox GUI API (FastAPI)
-After=network-online.target
+After=network-online.target redis-server.service
 Wants=network-online.target
+Requires=redis-server.service
 
 [Service]
 Type=simple
 User=proxmox-gui
 Group=proxmox-gui
-# DEPLOY-04: WorkingDirectory + ExecStart resolve through /opt/proxmox-gui/current,
-# a symlink swapped atomically by deploy/lxc/update.sh. The per-release venv
-# lives inside the release dir so rollback = repoint the symlink (no pip undo).
+SupplementaryGroups=redis
 WorkingDirectory=/opt/proxmox-gui/current/backend
 Environment=PROXMOX_GUI_MASTER_KEY_PATH=/etc/proxmox-gui/master.key
 Environment=PROXMOX_GUI_DATABASE_URL=sqlite+aiosqlite:////var/lib/proxmox-gui/app.db
 Environment=PROXMOX_GUI_JWT_SECRET_FILE=/etc/proxmox-gui/jwt.secret
 Environment=PROXMOX_GUI_PAT_PEPPER_FILE=/etc/proxmox-gui/pat.pepper
+Environment=PROXMOX_GUI_SETUP_TOKEN_FILE=/etc/proxmox-gui/setup-token
+Environment=PROXMOX_GUI_REDIS_SOCKET=/run/redis/redis-server.sock
 Environment=PROXMOX_GUI_COOKIE_SECURE=true
 Environment=PROXMOX_GUI_LOG_LEVEL=INFO
+# Written by install.sh --enable-community-scripts (root:proxmox-gui 0440); absent = disabled.
+EnvironmentFile=-/etc/proxmox-gui/gui.env
 ExecStart=/opt/proxmox-gui/current/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# hardening (ASVS V14.1)
+# --- hardening (F-12) ---
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+PrivateDevices=true
+ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/proxmox-gui /var/log/proxmox-gui
+ReadWritePaths=/var/lib/proxmox-gui
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProcSubset=pid
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target

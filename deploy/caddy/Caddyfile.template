@@ -1,6 +1,6 @@
 # /etc/caddy/Caddyfile — Proxmox GUI (Phase 1 default: LAN / self-signed)
 #
-# This file is installed verbatim by deploy/lxc/bootstrap.sh.
+# This is a TEMPLATE: deploy/lxc/render-caddyfile.sh renders it to /etc/caddy/Caddyfile.
 #
 # Architecture (research/ARCHITECTURE.md + Pattern 11):
 #   - Single origin. Browser hits Caddy on :443. Caddy reverse-proxies
@@ -31,17 +31,33 @@
 	# multiplexing the GUI gives up is irrelevant for a self-hosted admin UI.
 	servers {
 		protocols h1
+		# Slow-client limits. No `write` timeout: it would cut the WebSocket
+		# streams (job events, noVNC console) that legitimately stay open.
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 2m
+		}
 	}
 }
 
-# __SITE_ADDR__ is replaced by bootstrap.sh with `https://<LXC-IP>:443` so
-# Caddy's internal CA has a concrete IP to put in the leaf cert's SAN.
+# __SITE_ADDR__ is replaced by deploy/lxc/render-caddyfile.sh (run by
+# proxmox-gui-caddy-render.service before EVERY Caddy start) with
+# `https://<current LXC IP>:443`, or `https://<FQDN>` when PGUI_FQDN is set in
+# /etc/proxmox-gui/site.env, so Caddy's internal CA always has a concrete name/IP
+# for the leaf cert's SAN — even after a DHCP change.
 # A bare `:443` block creates a TLS server with no connection policy that
 # can issue a cert — clients then get TLS alert internal_error (80).
 __SITE_ADDR__ {
 	tls internal
 
 	encode zstd gzip
+
+	# Request bodies: the API takes JSON (cloud-init, notes, ...) and small
+	# uploads only; 10 MB is generous. (ISO/template uploads go straight to PVE.)
+	request_body {
+		max_size 10MB
+	}
 
 	# Security headers (ASVS V14.4 — see threat_model in 01-04 PLAN)
 	header {

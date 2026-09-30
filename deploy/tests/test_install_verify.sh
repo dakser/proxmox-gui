@@ -41,7 +41,7 @@ inst --signers "$SIGNERS" --release v0.0.1
 assert_rc 0 "install"
 assert_contains "$OUT" "signature and hash OK" "verification ran"
 assert_logged "pct push 200" "tarball pushed after verification"
-assert_logged "pct exec 200 -- env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR=/root/pgui-src bash /root/pgui-src/deploy/lxc/bootstrap.sh" "bootstrap runs from the verified tarball"
+assert_logged "pct exec 200 -- env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL=https://github.com/dakser/proxmox-gui bash /root/pgui-src/deploy/lxc/bootstrap.sh" "bootstrap runs from the verified tarball"
 first_create="$(grep -n '^pct create' "$SHIM_LOG" | head -1 | cut -d: -f1)"
 first_curl="$(grep -n '^curl' "$SHIM_LOG" | head -1 | cut -d: -f1)"
 assert_eq "1" "$([[ "$first_curl" -lt "$first_create" ]] && echo 1 || echo 0)" "download+verify happen before pct create"

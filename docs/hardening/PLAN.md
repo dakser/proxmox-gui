@@ -146,7 +146,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P3 — Modelo de archivos y privilegios dentro del LXC (F-02, F-06, F-09, F-10, F-12)
 
-- [ ] **P3-01 Código inmutable.** `/opt/proxmox-gui/releases/<tag>` y todo su contenido `root:root`, modo 755/644; el usuario de
+- [x] **P3-01 Código inmutable.** `/opt/proxmox-gui/releases/<tag>` y todo su contenido `root:root`, modo 755/644; el usuario de
   servicio solo lee y ejecuta. Instalar el backend **no editable** (sin `-e`); `--no-deps` para el paquete propio.
   *Aceptación:* test en arnés: tras el bootstrap simulado, `find releases -not -user root` vacío; ningún archivo escribible
   por grupo/otros.
@@ -155,9 +155,9 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   `gen-jwt-secret.sh` (crear con `umask 077`, `install -m` atómico, propietario root) y verificar que el chequeo de permisos de
   `app/core/cipher.py` (`st_mode & 0o077`) sigue satisfecho o actualizarlo con test.
   *Aceptación:* `pytest backend/tests/test_cipher.py` verde; test del arnés sobre modos y propietarios.
-- [ ] **P3-03 Usuario separado para el frontend.** Crear `proxmox-gui-web` sin shell ni acceso a `/etc/proxmox-gui`, Redis ni
+- [x] **P3-03 Usuario separado para el frontend.** Crear `proxmox-gui-web` sin shell ni acceso a `/etc/proxmox-gui`, Redis ni
   `/var/lib/proxmox-gui`; actualizar `proxmox-gui-frontend.service`. Directorios accesibles por camino, no por grupo compartido.
-- [ ] **P3-04 Sin sudo.** Eliminar el sudoers y toda referencia a `sudo -n systemctl` (se reemplaza en P4). Quitar la dependencia de
+- [x] **P3-04 Sin sudo.** Eliminar el sudoers y toda referencia a `sudo -n systemctl` (se reemplaza en P4). Quitar la dependencia de
   `visudo`.
 - [x] **P3-05 Toolchain fijado.** Crear `deploy/pins.env` con URL + SHA-256 de: tarball de Node 22 LTS (linux-x64) y Python 3.12
   standalone (o `uv` con su hash). `bootstrap.sh` descarga a archivo, verifica con `sha256sum -c` y solo entonces instala; se
@@ -166,12 +166,12 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P3-06 Dependencias con hashes.** Generar `backend/requirements.lock` con `uv pip compile --generate-hashes` (fuente:
   `pyproject.toml`), instalar con `pip install --require-hashes --only-binary=:all: -r requirements.lock`. CI verifica que el
   lockfile no está desactualizado.
-- [ ] **P3-07 Token de setup.** El bootstrap genera `/etc/proxmox-gui/setup-token` (`root:proxmox-gui` 0440, 32 bytes aleatorios en
+- [x] **P3-07 Token de setup.** El bootstrap genera `/etc/proxmox-gui/setup-token` (`root:proxmox-gui` 0440, 32 bytes aleatorios en
   urlsafe). Implementación del lado app en P5-01.
 - [ ] **P3-08 Redis.** Socket Unix (`port 0`, `unixsocket`, `unixsocketperm 660`, usuario `proxmox-gui` en el grupo `redis`) si arq lo
   soporta; si no, `requirepass` desde archivo 0440. Verificar en el código de arq 0.26.3 qué opciones admite `RedisSettings`
   antes de decidir. Configuración persistente en un drop-in propio, no editando `/etc/redis/redis.conf` con `echo >>`.
-- [ ] **P3-09 Unidades systemd endurecidas.** Para API/worker: `ProtectSystem=strict`, `ReadWritePaths=/var/lib/proxmox-gui`,
+- [x] **P3-09 Unidades systemd endurecidas.** Para API/worker: `ProtectSystem=strict`, `ReadWritePaths=/var/lib/proxmox-gui`,
   `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `NoNewPrivileges`, `CapabilityBoundingSet=` (vacío), `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`,
   `RestrictNamespaces`, `LockPersonality`, `ProtectKernelTunables/Modules/Logs`, `ProtectControlGroups`, `ProtectClock`,
   `SystemCallFilter=@system-service`, `SystemCallArchitectures=native`, `UMask=0077`, `MemoryDenyWriteExecute=yes` (probar con el
