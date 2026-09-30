@@ -389,7 +389,7 @@ class _FakeConnectCM:
 def _make_connect_factory(upstream: _FakeUpstream | None = None):
     """Return a ``websockets_connect`` replacement that records its args."""
 
-    def _connect(url: str, *, ssl=None, additional_headers=None):  # noqa: ANN001
+    def _connect(url: str, *, ssl=None, additional_headers=None, **_kw):  # noqa: ANN001, ANN003
         return _FakeConnectCM(
             url, ssl=ssl, additional_headers=additional_headers, upstream=upstream
         )
