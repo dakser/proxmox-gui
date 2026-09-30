@@ -122,7 +122,7 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
 
 Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (opt-in)`.
 
-- [ ] **P1-08 Gate: residuos (F-16).** Escalar `TERM`→`KILL` tras gracia; escapar/limitar todo dato externo en el log; documentar en `SSH-GATE.md` el riesgo residual de la tag; test para cada punto.
+- [x] **P1-08 Gate: residuos (F-16).** Escalar `TERM`→`KILL` tras gracia; escapar/limitar todo dato externo en el log; documentar en `SSH-GATE.md` el riesgo residual de la tag; test para cada punto.
 
 ## P2 — Puerta de entrada: `install.sh` (F-04 parcial, F-07, F-08)
 

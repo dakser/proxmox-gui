@@ -14,6 +14,9 @@ use B ();
 # `restrict` forbids user environment).
 my $PCT    = $ENV{PGUI_GATE_PCT}    // '/usr/sbin/pct';
 my $LOGGER = $ENV{PGUI_GATE_LOGGER} // '/usr/bin/logger';
+# Timeouts are constants in production; the overrides exist for the test harness only.
+my $EXEC_TIMEOUT = ($ENV{PGUI_GATE_TIMEOUT} // '') =~ /\A[0-9]+\z/ ? $ENV{PGUI_GATE_TIMEOUT} : 3600;
+my $KILL_GRACE   = ($ENV{PGUI_GATE_GRACE} // '') =~ /\A[0-9]+\z/ ? $ENV{PGUI_GATE_GRACE} : 5;
 $ENV{PATH} = '/usr/sbin:/usr/bin:/sbin:/bin';
 
 use constant {
@@ -22,7 +25,6 @@ use constant {
     MAX_ARG_LEN  => 16384,
     MAX_ENV      => 64,
     MAX_ENV_LEN  => 4096,
-    EXEC_TIMEOUT => 3600,
     PREFLIGHT_TIMEOUT => 20,
     TAG          => 'proxmox-gui',
 };
@@ -37,17 +39,36 @@ sub is_string {
     return ($f & B::SVp_POK) && !($f & (B::SVp_IOK | B::SVp_NOK)) ? 1 : 0;
 }
 
+# Everything that came from the client is made printable-ASCII and bounded before it is logged
+# or echoed (no log-line injection, F-16).
+sub clean {
+    my ($v) = @_;
+    $v = '' unless defined $v;
+    $v = substr($v, 0, 120);
+    $v =~ s/[^\x20-\x7e]/?/g;
+    return $v;
+}
+
 sub log_msg {
     my ($msg) = @_;
+    $msg = clean($msg);
     # logger is best effort; never let logging break the gate.
     if (open(my $fh, '|-', $LOGGER, '-t', 'proxmox-gui-gate', '--', $msg)) { close($fh); }
 }
 
 sub reject {
     my ($why) = @_;
+    $why = clean($why);
     log_msg("rejected: $why");
     print STDERR "proxmox-gui-ssh-gate: $why\n";
     exit 126;
+}
+
+# First SIGALRM: TERM the process group and arm a grace timer; second: KILL the group.
+sub alarm_step {
+    my ($flag, $pid) = @_;
+    if (!$$flag) { $$flag = 1; kill('TERM', -$pid); alarm($KILL_GRACE); }
+    else { kill('KILL', -$pid); }
 }
 
 # waitpid that survives the SIGALRM handler interrupting it (EINTR).
@@ -77,7 +98,7 @@ sub run_capture {
     close($w);
     my $out = '';
     my $timed_out = 0;
-    local $SIG{ALRM} = sub { $timed_out = 1; kill('TERM', -$pid); };
+    local $SIG{ALRM} = sub { alarm_step(\$timed_out, $pid) };
     alarm($timeout);
     while (1) {
         my $n = sysread($r, my $buf, 65536);
@@ -150,7 +171,7 @@ reject('env must be an object') unless ref($env) eq 'HASH';
 reject('too many env entries') if keys(%$env) > MAX_ENV;
 for my $k (sort keys %$env) {
     my $v = $env->{$k};
-    reject("invalid env name '$k'") unless $k =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
+    reject("invalid env name '$k'") unless length($k) <= 64 && $k =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
     reject("forbidden env name '$k'") if $k =~ $FORBIDDEN_ENV;
     reject("invalid env value for '$k'") unless is_string($v);
     reject("env value too long for '$k'") if length($v) > MAX_ENV_LEN;
@@ -172,8 +193,8 @@ if ($pid == 0) {
     exec { $cmd[0] } @cmd or POSIX::_exit(127);
 }
 my $timed_out = 0;
-local $SIG{ALRM} = sub { $timed_out = 1; kill('TERM', -$pid); };
-alarm(EXEC_TIMEOUT);
+local $SIG{ALRM} = sub { alarm_step(\$timed_out, $pid) };
+alarm($EXEC_TIMEOUT);
 reap($pid);
 alarm(0);
 my $rc = $timed_out ? 124 : (($? & 127) ? 128 + ($? & 127) : ($? >> 8));

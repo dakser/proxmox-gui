@@ -118,4 +118,33 @@ reset_env; ct_config 1 proxmox-gui
 gate "exec 201" '{"argv":["true"]}'$'\n'
 assert_logged "pct exec 201 -- true"; assert_not_logged "pct exec 201 -- env"
 
+test_case "F-16: client-controlled data cannot inject lines into the log or stderr"
+reset_env; ct_config 1 proxmox-gui
+gate "exec 201" $'{"env":{"A\\nFAKE gate: accepted vmid=1\\u001b[31m":"x"},"argv":["true"]}\n'
+assert_rc 126 "hostile env name"
+assert_eq "1" "$(grep -c '^logger' "$SHIM_LOG")" "exactly one log entry, no injected lines"
+assert_eq "0" "$(grep '^logger' "$SHIM_LOG" | grep -c $'\\x1b\\|\\$'"'"'')" "no control characters reach syslog" || true
+assert_not_contains "$ERR" $'\x1b' "no escape sequences echoed to the client"
+assert_eq "1" "$(printf '%s' "$ERR" | wc -l | awk '{print ($1<=1)?1:0}')" "stderr is a single line"
+long="$(python3 -c 'print("X"*5000)')"
+gate "exec 201" "{\"env\":{\"$long\":\"x\"},\"argv\":[\"true\"]}"$'\n'
+assert_rc 126 "very long env name"
+assert_eq "1" "$(awk 'length($0) < 400 {n++} END {print (n==NR)?1:0}' "$T_TMP/e")" "echoed message is bounded"
+
+test_case "F-16: a process ignoring TERM is escalated to KILL after the grace period"
+reset_env
+shim_handler pct <<'H'
+    case "$1" in
+        config) echo 'unprivileged: 1'; echo 'tags: proxmox-gui'; return 0 ;;
+        exec) trap '' TERM; sleep 60.5; return 0 ;;
+    esac
+H
+start=$(date +%s)
+PGUI_GATE_TIMEOUT=1 PGUI_GATE_GRACE=1 gate "exec 201" '{"argv":["true"]}'$'\n'
+elapsed=$(( $(date +%s) - start ))
+assert_rc 124 "timeout exit code"
+assert_eq "1" "$([[ $elapsed -le 8 ]] && echo 1 || echo 0)" "gate returned within timeout+grace, not after the 60 s sleep"
+sleep 1
+assert_eq "0" "$(pgrep -f '^sleep 60\.5$' | wc -l)" "the TERM-ignoring child was killed"
+
 finish

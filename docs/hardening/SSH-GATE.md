@@ -62,7 +62,17 @@ código de salida o motivo del rechazo. Salida: código del proceso dentro del C
 -o ClearAllForwardings=yes -T root@<node> exec <vmid>` con el JSON + stdin por stdin; `… preflight` para el preflight. `node` se
 valida contra `^[A-Za-z0-9]([A-Za-z0-9.-]{0,61}[A-Za-z0-9])?$` antes de lanzar el proceso.
 
+## Registro y datos externos (F-16)
+
+Todo dato que viene del cliente (nombres de variables, mensajes de rechazo) se reduce a ASCII imprimible y se acota a 120 caracteres
+antes de escribirse en syslog o en stderr: no hay inyección de líneas ni secuencias de escape. Al vencer el tiempo máximo se envía `TERM` al grupo
+de procesos y, pasados 5 s, `KILL`.
+
 ## Límites conocidos
+
+- **La tag `proxmox-gui` es la única marca de propiedad** (D8) y cualquier administrador de PVE puede ponerla a cualquier CT sin privilegios del
+  nodo: el gate ejecutará entonces `pct exec` en él para quien controle la app. Riesgo residual aceptado; mitigación operativa: restringir quién
+  puede editar tags en PVE y revisar `pct list` periódicamente.
 
 - `from=` depende de la IP del LXC: con DHCP puede cambiar; usar `--ip/--gw` (IP estática) en la instalación.
 - `pct exec` en un CT sin privilegios queda acotado al contenedor, pero el CT con tag es de la GUI: quien comprometa la app puede
