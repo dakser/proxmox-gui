@@ -262,8 +262,8 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P7 — Verificación integral e informe
 
-- [ ] **P7-01 Suite completa.** `scripts/check.sh` en verde; comparar con `BASELINE.md`; cero regresiones. Cobertura de los módulos tocados no menor que en la línea base.
-- [ ] **P7-02 Prueba de humo del instalador con systemd real.** *(revisada)* Además del script local `deploy/tests/smoke-systemd.sh`, añadir a `ci.yml` un job `smoke-systemd` en runners de GitHub (ubuntu, Docker con daemon disponible allí; imagen Debian 12 con systemd) que ejecute la prueba de abajo y suba logs como artefacto. Es el nivel "entorno real sin PVE".
+- [x] **P7-01 Suite completa.** `scripts/check.sh` en verde; comparar con `BASELINE.md`; cero regresiones. Cobertura de los módulos tocados no menor que en la línea base.
+- [x] **P7-02 Prueba de humo del instalador con systemd real.** *(revisada)* Además del script local `deploy/tests/smoke-systemd.sh`, añadir a `ci.yml` un job `smoke-systemd` en runners de GitHub (ubuntu, Docker con daemon disponible allí; imagen Debian 12 con systemd) que ejecute la prueba de abajo y suba logs como artefacto. Es el nivel "entorno real sin PVE".
   Detalle original: Si hay `docker` con daemon disponible: imagen Debian 12 con systemd
   (`--privileged --cgroupns=host`), ejecutar `bootstrap.sh` con un tarball de release local de prueba, comprobar que arrancan `caddy`, `redis`,
   API, worker y frontend, que `GET https://127.0.0.1/api/v1/health` responde, que `/setup` exige token y que `systemd-analyze security` no empeora.
@@ -274,4 +274,4 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P7-05 Lista de validación en laboratorio.** `docs/hardening/LAB-CHECKLIST.md`: pasos para un PVE anidado o nodo de pruebas (instalar sin y con
   `--enable-community-scripts`, crear el primer admin con token, registrar un clúster, VM/LXC, consola, backup/restore, release N → N+1 y
   rollback forzado, desinstalar y comprobar `authorized_keys`), con el resultado esperado de cada paso.
-- [ ] **P7-06 Informe final.** `docs/hardening/HARDENING-REPORT.md` con la plantilla de `AUTONOMY.md`.
+- [x] **P7-06 Informe final.** `docs/hardening/HARDENING-REPORT.md` con la plantilla de `AUTONOMY.md`.
