@@ -94,7 +94,7 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
   *Aceptación:* tests en `deploy/tests/test_ssh_gate.sh` (con `pct` falso) cubren: vmid inválido, CT inexistente,
   CT privilegiado, CT sin tag, env prohibido, argv con metacaracteres (llegan literales), JSON malformado, exceso de
   tamaño. `shellcheck` (o `perl -c`) limpio.
-- [ ] **P1-03 Instalación opt-in en `install.sh`.** Flag `--enable-community-scripts` (apagado por defecto). Solo entonces:
+- [x] **P1-03 Instalación opt-in en `install.sh`.** Flag `--enable-community-scripts` (apagado por defecto). Solo entonces:
   instalar el gate en el host, leer la clave pública del CT, **validarla** (una sola línea, `ssh-ed25519`, sin opciones,
   `ssh-keygen -l -f` correcto), y escribir la entrada `restrict,from="<IP del CT>",command="..." <clave> proxmox-gui@<ctid>`
   en `/root/.ssh/authorized_keys` de forma idempotente (reemplazar la línea anterior con el mismo comentario,
@@ -102,7 +102,7 @@ Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exe
   Capturar la host key del nodo (`/etc/ssh/ssh_host_ed25519_key.pub`) y entregarla al CT para el `known_hosts` (P1-05).
   *Aceptación:* test con `pct`/`ssh-keygen` falsos: clave multilínea o con `command=` se rechaza; doble ejecución deja una
   sola línea; sin el flag no se toca `authorized_keys`.
-- [ ] **P1-04 Desinstalación y revocación.** `install.sh --uninstall --ctid N`: quita del host la entrada
+- [x] **P1-04 Desinstalación y revocación.** `install.sh --uninstall --ctid N`: quita del host la entrada
   `authorized_keys` de ese CT (por comentario exacto), retira el gate si no quedan otras entradas, y solo con `--purge`
   destruye el CT (pide confirmación escrita del CTID).
   *Aceptación:* test de ida y vuelta (install → uninstall) deja `authorized_keys` idéntico al inicial.
@@ -124,24 +124,24 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P2 — Puerta de entrada: `install.sh` (F-04 parcial, F-07, F-08)
 
-- [ ] **P2-01 Validación de entradas.** Parser que exige valor para cada flag; `CTID`, `CPU`, `RAM_MB`, `DISK_GB` numéricos y
+- [x] **P2-01 Validación de entradas.** Parser que exige valor para cada flag; `CTID`, `CPU`, `RAM_MB`, `DISK_GB` numéricos y
   en rango; `STORAGE`, `BRIDGE`, hostname y `--release` con listas de caracteres permitidos (`^[A-Za-z0-9][A-Za-z0-9._-]*$`,
   sin `..`); `REPO_URL` solo `https://github.com/<owner>/<repo>`. Renombrar `HOSTNAME` a `CT_HOSTNAME` (default `proxmox-gui`).
   Corregir el texto de ayuda a la rama real. Dejar de aceptar `CTID` y `HOSTNAME` por entorno; usar prefijo `PGUI_`.
   Aceptar `PGUI_ROOT` (prefijo de pruebas) para el arnés.
   *Aceptación:* `deploy/tests/test_install_args.sh` verde (los casos rojos de P0-05).
-- [ ] **P2-02 Marcador de contenedor propio.** Al crear el CT, añadir `--tags proxmox-gui` y `--description` con un identificador.
+- [x] **P2-02 Marcador de contenedor propio.** Al crear el CT, añadir `--tags proxmox-gui` y `--description` con un identificador.
   La ruta de actualización solo actúa si el CT existe, tiene ese tag y `/etc/proxmox-gui/.installed` dentro del CT.
   *Aceptación:* test: CTID ajeno → aborta sin ejecutar nada dentro del CT.
-- [ ] **P2-03 Descarga verificable en el host.** Sustituir `curl | bash` dentro del LXC: el host descarga a un directorio
+- [x] **P2-03 Descarga verificable en el host.** Sustituir `curl | bash` dentro del LXC: el host descarga a un directorio
   temporal el tarball de la release, `SHA256SUMS` y `SHA256SUMS.sig`, verifica la firma con `ssh-keygen -Y verify`
   contra `deploy/release-signers` (allowed_signers, clave pública tuya), verifica el hash, y entrega al CT con `pct push`.
   Dentro del CT se ejecuta `bootstrap.sh` desde el tarball ya verificado. Un solo origen: eliminar el `git clone` del
   bootstrap. `--release` obligatorio (tag `vX.Y.Z`); `latest` y ramas no se admiten.
   *Aceptación:* test con release falsa: firma inválida, hash alterado y tag inexistente abortan antes del primer `pct push`.
-- [ ] **P2-04 Errores visibles.** Quitar los `|| true` y `2>/dev/null` que ocultan fallos (plantilla, `pveam`, lectura de
+- [x] **P2-04 Errores visibles.** Quitar los `|| true` y `2>/dev/null` que ocultan fallos (plantilla, `pveam`, lectura de
   clave). Fallback de plantilla solo si `pveam available` no responde, con aviso claro. `trap` con limpieza del directorio temporal.
-- [ ] **P2-05 Banner y token de setup.** Imprimir la URL y el comando para leer el token de setup (P3-07). No imprimir secretos
+- [x] **P2-05 Banner y token de setup.** Imprimir la URL y el comando para leer el token de setup (P3-07). No imprimir secretos
   en logs.
 
 ## P3 — Modelo de archivos y privilegios dentro del LXC (F-02, F-06, F-09, F-10, F-12)

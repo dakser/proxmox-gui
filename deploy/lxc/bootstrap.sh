@@ -15,23 +15,31 @@
 #     `alembic upgrade head` only. This is the upgrade path until Phase 5
 #     ships proper self-update (DEPLOY-04).
 #
-# Required env (set by install.sh; sensible defaults if run manually):
-#   REPO_URL  git remote URL          (default: https://github.com/chloepriceless/proxmox-gui)
-#   RELEASE   branch / tag / commit   (default: master)
+# Required env (set by install.sh after it verified the signed release on the host):
+#   PGUI_RELEASE_TAG  release tag vX.Y.Z
+#   PGUI_SRC_DIR      directory holding the extracted, verified release tarball
+#                     (backend/ frontend/ deploy/) — there is NO git clone any more (F-04).
 
 set -euo pipefail
 
 trap 'echo "ERROR: bootstrap.sh failed at line $LINENO (exit $?)" >&2; exit 1' ERR
 
-# Inputs (env-driven; install.sh exports both).
-REPO_URL="${REPO_URL:-https://github.com/chloepriceless/proxmox-gui}"
-RELEASE="${RELEASE:-master}"
+# Inputs (env-driven; install.sh passes both).
+RELEASE="${PGUI_RELEASE_TAG:-}"
+APP_SRC="${PGUI_SRC_DIR:-}"
+if [[ ! "$RELEASE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ || "$RELEASE" == *..* ]]; then
+    echo "ERROR: PGUI_RELEASE_TAG must be a release tag vX.Y.Z (got '${RELEASE}')." >&2
+    exit 1
+fi
+if [[ -z "$APP_SRC" || ! -d "$APP_SRC/backend" || ! -d "$APP_SRC/deploy" || ! -d "$APP_SRC/frontend" ]]; then
+    echo "ERROR: PGUI_SRC_DIR must point at the extracted release (backend/ frontend/ deploy/)." >&2
+    exit 1
+fi
 
 # Layout (Pitfall A6: 0400/0700 perms on /etc/proxmox-gui).
 APP_USER="proxmox-gui"
 APP_GROUP="proxmox-gui"
 APP_HOME="/opt/proxmox-gui"
-APP_SRC="/opt/proxmox-gui-src"
 ETC_DIR="/etc/proxmox-gui"
 DATA_DIR="/var/lib/proxmox-gui"
 LOG_DIR="/var/log/proxmox-gui"
@@ -45,7 +53,7 @@ CURRENT_LINK="${APP_HOME}/current"
 # Phase 1 layouts wrote backend/, frontend/, deploy/ directly into APP_HOME.
 # Bootstrap now stamps an initial release tag so the very first install also
 # uses the releases/current layout (D-12 idempotent re-run = update).
-INITIAL_TAG="${RELEASE:-master}"
+INITIAL_TAG="$RELEASE"
 
 # ----------------------------------------------------------------------------
 # Idempotent short-circuit: if marker exists, just run migrations and exit.
@@ -137,7 +145,7 @@ fi
 echo "==> apt-get update + base packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    ca-certificates curl git \
+    ca-certificates curl \
     sqlite3 \
     nodejs npm \
     caddy \
@@ -233,9 +241,7 @@ chmod 0750 "$APP_HOME" "$RELEASES_DIR" "$DATA_DIR" "$LOG_DIR"
 # so subsequent steps can address /opt/proxmox-gui/current/* uniformly with
 # the runtime systemd units.
 # ----------------------------------------------------------------------------
-echo "==> Fetching source from $REPO_URL @ $RELEASE..."
-rm -rf "$APP_SRC"
-git clone --depth 1 --branch "$RELEASE" "$REPO_URL" "$APP_SRC"
+echo "==> Using the verified release source at $APP_SRC (tag $RELEASE)..."
 
 INITIAL_RELEASE_DIR="${RELEASES_DIR}/${INITIAL_TAG}"
 echo "==> Staging initial release into ${INITIAL_RELEASE_DIR}..."

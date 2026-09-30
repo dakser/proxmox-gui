@@ -1,0 +1,5 @@
+# allowed_signers (ssh-keygen -Y verify): identity, namespace restriction, key.
+# Replace the placeholder with YOUR release-signing PUBLIC key (see HUMAN-TODO.md):
+#   ssh-keygen -t ed25519 -f ~/.ssh/proxmox-gui-release -C "proxmox-gui release"
+#   scripts/sync-signers.sh   # embeds this file into deploy/install.sh
+proxmox-gui-release namespaces="proxmox-gui-release" REEMPLAZAR-CON-TU-CLAVE-PUBLICA

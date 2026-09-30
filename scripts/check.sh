@@ -12,6 +12,9 @@ source scripts/baseline-counts.env
 
 step() { printf '\n==> %s\n' "$*"; }
 
+step "perl -c on the SSH gate"
+perl -c deploy/host/proxmox-gui-ssh-gate
+
 step "shellcheck + bash -n on shell scripts"
 mapfile -t SH_FILES < <(
     { git ls-files 'deploy/*.sh' 'scripts/*.sh' 'deploy/**/*.sh'
@@ -29,13 +32,19 @@ if ((${#SH_FILES[@]})); then
 fi
 
 step "release-signers / pins placeholders"
+# Placeholders make the installer refuse to run, so they must be filled before a
+# release. PGUI_ALLOW_PLACEHOLDERS=1 (set by CI so forks can run it before they
+# own a signing key) downgrades them to warnings.
+placeholder_fail() {
+    if [[ "${PGUI_ALLOW_PLACEHOLDERS:-0}" == 1 ]]; then echo "WARN: $1 (allowed by PGUI_ALLOW_PLACEHOLDERS=1)" >&2
+    else echo "FAIL: $1" >&2; exit 1; fi
+}
+scripts/sync-signers.sh --check
 if [[ -f deploy/release-signers ]] && grep -q 'REEMPLAZAR-CON-TU-CLAVE-PUBLICA' deploy/release-signers; then
-    echo "FAIL: deploy/release-signers still holds the placeholder key (HUMAN-TODO)" >&2
-    exit 1
+    placeholder_fail "deploy/release-signers still holds the placeholder key (HUMAN-TODO)"
 fi
 if [[ -f deploy/pins.env ]] && grep -q 'TODO-PIN' deploy/pins.env; then
-    echo "FAIL: deploy/pins.env has TODO-PIN entries; run scripts/update-pins.sh" >&2
-    exit 1
+    placeholder_fail "deploy/pins.env has TODO-PIN entries; run scripts/update-pins.sh"
 fi
 
 step "ruff (ratchet: <= $RUFF_MAX)"

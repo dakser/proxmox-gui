@@ -28,8 +28,13 @@ jobs:
           mapfile -t files < <(grep -rIl --exclude-dir=node_modules --exclude-dir=.git '^#!/usr/bin/env bash\|^#!/bin/bash' deploy scripts | sort -u)
           for f in "${files[@]}"; do bash -n "$f"; done
           shellcheck -x "${files[@]}"
-      - name: deploy script tests
-        run: deploy/tests/run.sh
+      - name: gate syntax + signer sync + deploy script tests
+        env:
+          PGUI_ALLOW_PLACEHOLDERS: "1"
+        run: |
+          perl -c deploy/host/proxmox-gui-ssh-gate
+          scripts/sync-signers.sh --check
+          deploy/tests/run.sh
 
   backend:
     runs-on: ubuntu-24.04

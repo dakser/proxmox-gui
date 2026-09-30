@@ -95,3 +95,35 @@ finish() {
     printf '%s: %d passed, %d failed\n' "$(basename "$0")" "$_pass" "$_fail"
     [[ "$_fail" -eq 0 ]]
 }
+
+# make_release <tag> [--no-gate]: builds a signed fake release under $T_TMP/rel:
+#   proxmox-gui-<tag>.tar.gz (flat layout), SHA256SUMS, SHA256SUMS.sig, signers file
+# and a curl shim that serves those files. Exports REL_DIR, SIGNERS, SIGN_KEY.
+make_release() {
+    local tag="$1" stage
+    REL_DIR="$T_TMP/rel"; SIGNERS="$T_TMP/allowed_signers"; SIGN_KEY="$T_TMP/sign_key"
+    export REL_DIR SIGNERS SIGN_KEY
+    rm -rf "$REL_DIR" "$T_TMP/stage"; mkdir -p "$REL_DIR"
+    stage="$T_TMP/stage"; mkdir -p "$stage/deploy/host" "$stage/deploy/lxc" "$stage/backend" "$stage/frontend/build"
+    cp "$DEPLOY_DIR/host/proxmox-gui-ssh-gate" "$stage/deploy/host/"
+    printf '#!/bin/sh\nexit 0\n' >"$stage/deploy/lxc/bootstrap.sh"
+    printf '#!/bin/sh\nexit 0\n' >"$stage/deploy/lxc/update.sh"
+    echo "x" >"$stage/backend/pyproject.toml"; echo "x" >"$stage/frontend/build/index.js"
+    tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -czf \
+        "$REL_DIR/proxmox-gui-${tag}.tar.gz" -C "$stage" backend frontend deploy
+    [[ -f "$SIGN_KEY" ]] || ssh-keygen -t ed25519 -N "" -q -f "$SIGN_KEY" -C test-release
+    (cd "$REL_DIR" && sha256sum "proxmox-gui-${tag}.tar.gz" >SHA256SUMS \
+        && ssh-keygen -Y sign -q -f "$SIGN_KEY" -n proxmox-gui-release SHA256SUMS)
+    printf 'proxmox-gui-release namespaces="proxmox-gui-release" %s\n' "$(cut -d' ' -f1,2 "$SIGN_KEY.pub")" >"$SIGNERS"
+    shim_handler curl <<'H'
+        local out="" url="" prev=""
+        for a in "$@"; do
+            [[ "$prev" == "-o" ]] && out="$a"
+            [[ "$a" == http* ]] && url="$a"
+            prev="$a"
+        done
+        local src="$REL_DIR/$(basename "$url")"
+        [[ -f "$src" ]] || return 22
+        cp "$src" "$out"
+H
+}
