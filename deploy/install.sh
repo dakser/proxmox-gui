@@ -382,7 +382,7 @@ enable_community_scripts() {
     # 1. Gate from the verified tarball -> /usr/local/sbin (root:root 0755).
     tar -xzf "${TMPDIR_INSTALL}/${TARBALL_NAME}" -C "$TMPDIR_INSTALL" --no-same-owner --no-same-permissions \
         "deploy/host/${GATE_NAME}" || die "release tarball lacks deploy/host/${GATE_NAME}"
-    install -D -m 0755 -o root -g root "${TMPDIR_INSTALL}/deploy/host/${GATE_NAME}" "$GATE_DEST"
+    install -D -m 0755 "${TMPDIR_INSTALL}/deploy/host/${GATE_NAME}" "$GATE_DEST"
 
     # 4. Restricted entry, idempotent (replaces the previous line for this CT).
     if [[ "$CT_IP" == "dhcp" ]]; then

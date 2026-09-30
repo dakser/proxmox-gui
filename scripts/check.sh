@@ -79,5 +79,13 @@ step "frontend check + test"
 
 step "deploy script tests (harness with fake host binaries)"
 deploy/tests/run.sh
+# CI runs them as an unprivileged user: root-only assumptions (install -o root, chown) must not hide here.
+if [[ "$(id -u)" -eq 0 ]] && command -v setpriv >/dev/null 2>&1; then
+    step "deploy script tests again as an unprivileged user (like CI)"
+    nbtmp="$(mktemp -d)"; chmod 1777 "$nbtmp"
+    setpriv --reuid=65534 --regid=65534 --clear-groups env HOME="$nbtmp" TMPDIR="$nbtmp" PATH="$PATH" \
+        bash -c "cd '$PWD' && deploy/tests/run.sh"
+    rm -rf "$nbtmp"
+fi
 
 printf '\ncheck.sh: OK\n'

@@ -56,7 +56,7 @@ jobs:
           scripts/update-lock.sh --check
           python -m venv /tmp/locktest
           /tmp/locktest/bin/pip install --quiet --require-hashes --only-binary=:all: -r backend/requirements.lock
-          /tmp/locktest/bin/pip install --quiet --no-deps --no-build-isolation --no-index backend
+          /tmp/locktest/bin/pip install --quiet --no-deps --no-build-isolation --no-index ./backend
       - name: Lint, types and tests (ratchet vs. docs/hardening/BASELINE.md)
         working-directory: backend
         run: |

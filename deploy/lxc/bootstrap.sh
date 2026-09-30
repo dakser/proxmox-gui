@@ -211,7 +211,7 @@ done
 [[ -n "${PGUI_SIGNERS_FILE:-}" && -f "${PGUI_SIGNERS_FILE}" ]] || die "PGUI_SIGNERS_FILE (allowed_signers from install.sh) is required"
 install -m 0644 "$PGUI_SIGNERS_FILE" "${ETC_DIR}/release-signers"
 install -m 0644 "${REL_DIR}/deploy/pins.env" "${ETC_DIR}/pins.env"
-install -m 0755 -o root -g root "${REL_DIR}/deploy/lxc/render-caddyfile.sh" "${SBIN_DIR}/proxmox-gui-caddy-render"
+install -m 0755 "${REL_DIR}/deploy/lxc/render-caddyfile.sh" "${SBIN_DIR}/proxmox-gui-caddy-render"
 
 # Release source for the updater: fixed to THIS fork by the installer (D2/F-04), never the upstream.
 [[ "${PGUI_REPO_URL:-}" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "PGUI_REPO_URL must be https://github.com/<owner>/<repo>"
