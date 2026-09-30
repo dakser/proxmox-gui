@@ -59,8 +59,15 @@ trap 'rm -f "$tmp"' EXIT
 sed "s|__SITE_ADDR__|${SITE}|" "$TEMPLATE" >"$tmp"
 if grep -q '__SITE_ADDR__' "$tmp"; then echo "ERROR: placeholder left in rendered Caddyfile" >&2; exit 1; fi
 if command -v caddy >/dev/null 2>&1; then
-    caddy validate --config "$tmp" --adapter caddyfile >&2 \
+    # `caddy validate` provisions the site's internal CA, which writes under $XDG_DATA_HOME
+    # (HOME is unset in this unit and the root filesystem is read-only), so give it a scratch
+    # directory in the runtime dir; nothing it writes there is used by the real server.
+    vdir="$(mktemp -d "${RUNDIR}/validate.XXXXXX")"
+    trap 'rm -f "$tmp"; rm -rf "$vdir"' EXIT
+    HOME="$vdir" XDG_DATA_HOME="$vdir/data" XDG_CONFIG_HOME="$vdir/config" \
+        caddy validate --config "$tmp" --adapter caddyfile >&2 \
         || { echo "ERROR: rendered Caddyfile failed 'caddy validate'; keeping the previous one" >&2; exit 1; }
+    rm -rf "$vdir"
 fi
 chmod 0644 "$tmp"
 mv -f "$tmp" "$OUT"

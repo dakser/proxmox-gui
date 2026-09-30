@@ -79,6 +79,25 @@ assert_rc_nonzero "validate failure"
 assert_eq "$before" "$(cat "$OUTF")" "previous Caddyfile kept"
 assert_eq "0" "$(find "$PGUI_ROOT/etc/caddy" -name 'Caddyfile.*' | wc -l)" "no temp file left behind"
 
+test_case "caddy validate runs with a writable scratch HOME/XDG dir that is removed afterwards"
+setup_tree
+shim_handler caddy <<'H'
+    printf '%s|%s|%s\n' "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" >"$PGUI_ROOT/caddy-env"
+H
+RIP=10.0.0.5 render
+assert_rc 0 "render with the validate scratch dir"
+IFS='|' read -r h d c <"$PGUI_ROOT/caddy-env"
+assert_contains "$h" "$PGUI_ROOT/run/proxmox-gui/validate." "HOME is under the runtime dir"
+assert_contains "$d" "$h" "XDG_DATA_HOME inside the scratch dir"
+assert_contains "$c" "$h" "XDG_CONFIG_HOME inside the scratch dir"
+assert_eq "0" "$(find "$PGUI_ROOT/run/proxmox-gui" -name 'validate.*' | wc -l)" "scratch dir removed"
+RIP=10.0.0.9 render >/dev/null
+shim_handler caddy <<'H'
+    return 1
+H
+RIP=10.0.0.9 render
+assert_eq "0" "$(find "$PGUI_ROOT/run/proxmox-gui" -name 'validate.*' | wc -l)" "scratch dir removed after a failed validate too"
+
 test_case "the template carries the hardening bits"
 t="$(cat "$DEPLOY_DIR/caddy/Caddyfile.template")"
 assert_contains "$t" "request_body" "body size limit"
