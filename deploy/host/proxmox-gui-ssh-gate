@@ -1,0 +1,181 @@
+#!/usr/bin/perl
+# proxmox-gui-ssh-gate — forced command for the GUI LXC's SSH key (F-01).
+# Installed on the PVE node as /usr/local/sbin/proxmox-gui-ssh-gate (root:root 0755).
+# Protocol: docs/hardening/SSH-GATE.md. No shell is ever involved: pct is exec'd
+# with a list of arguments. Fails closed (exit 126) on anything unexpected.
+use strict;
+use warnings;
+use JSON::PP ();
+use Digest::SHA qw(sha256_hex);
+use POSIX ();
+use B ();
+
+# Test hooks (sshd does not forward these: AcceptEnv is LANG/LC_* only, and
+# `restrict` forbids user environment).
+my $PCT    = $ENV{PGUI_GATE_PCT}    // '/usr/sbin/pct';
+my $LOGGER = $ENV{PGUI_GATE_LOGGER} // '/usr/bin/logger';
+$ENV{PATH} = '/usr/sbin:/usr/bin:/sbin:/bin';
+
+use constant {
+    MAX_JSON     => 65536,
+    MAX_ARGV     => 32,
+    MAX_ARG_LEN  => 16384,
+    MAX_ENV      => 64,
+    MAX_ENV_LEN  => 4096,
+    EXEC_TIMEOUT => 3600,
+    PREFLIGHT_TIMEOUT => 20,
+    TAG          => 'proxmox-gui',
+};
+
+my $FORBIDDEN_ENV = qr/^(?:LD_.*|BASH_.*|PERL.*|PYTHON.*|ENV|PATH|IFS|SHELLOPTS|BASHOPTS|PS4|CDPATH|GLOBIGNORE|HOME|SHELL)$/;
+
+# True only for JSON strings (not numbers/bools/refs/null).
+sub is_string {
+    my ($v) = @_;
+    return 0 if !defined($v) || ref($v);
+    my $f = B::svref_2object(\$v)->FLAGS;
+    return ($f & B::SVp_POK) && !($f & (B::SVp_IOK | B::SVp_NOK)) ? 1 : 0;
+}
+
+sub log_msg {
+    my ($msg) = @_;
+    # logger is best effort; never let logging break the gate.
+    if (open(my $fh, '|-', $LOGGER, '-t', 'proxmox-gui-gate', '--', $msg)) { close($fh); }
+}
+
+sub reject {
+    my ($why) = @_;
+    log_msg("rejected: $why");
+    print STDERR "proxmox-gui-ssh-gate: $why\n";
+    exit 126;
+}
+
+# waitpid that survives the SIGALRM handler interrupting it (EINTR).
+sub reap {
+    my ($pid) = @_;
+    while (1) {
+        my $w = waitpid($pid, 0);
+        last if $w == $pid || $!{ECHILD};
+    }
+}
+
+# Run a command with a list of args, capture stdout, enforce a timeout.
+# Returns (exit_code, stdout). exit_code 124 on timeout.
+sub run_capture {
+    my ($timeout, @cmd) = @_;
+    pipe(my $r, my $w) or reject('pipe failed');
+    my $pid = fork();
+    reject('fork failed') unless defined $pid;
+    if ($pid == 0) {
+        POSIX::setpgid(0, 0);
+        close($r);
+        open(STDIN, '<', '/dev/null');
+        open(STDOUT, '>&', $w);
+        open(STDERR, '>&', $w);
+        exec { $cmd[0] } @cmd or POSIX::_exit(127);
+    }
+    close($w);
+    my $out = '';
+    my $timed_out = 0;
+    local $SIG{ALRM} = sub { $timed_out = 1; kill('TERM', -$pid); };
+    alarm($timeout);
+    while (1) {
+        my $n = sysread($r, my $buf, 65536);
+        last if !defined($n) && !$!{EINTR};
+        last if defined($n) && $n == 0;
+        $out .= $buf if defined($n) && length($out) < 1048576;
+        last if $timed_out;
+    }
+    reap($pid);
+    alarm(0);
+    return (124, $out) if $timed_out;
+    return (($? >> 8) | ($? & 127 ? 128 : 0), $out);
+}
+
+my $orig = $ENV{SSH_ORIGINAL_COMMAND};
+reject('no command') unless defined $orig && length $orig;
+
+# ---------------------------------------------------------------- preflight
+if ($orig eq 'preflight') {
+    my ($rc) = run_capture(PREFLIGHT_TIMEOUT, $PCT, 'list');
+    log_msg("preflight rc=$rc");
+    if ($rc == 0) { print "PREFLIGHT_OK\n"; exit 0; }
+    print STDERR "pct list failed (rc=$rc)\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------- exec
+reject('unknown command') unless $orig =~ /\Aexec ([1-9][0-9]{2,8})\z/;
+my $vmid = $1;
+
+# CT must exist on this node, be unprivileged and carry the GUI tag (D8).
+my ($crc, $conf) = run_capture(20, $PCT, 'config', $vmid);
+reject("container $vmid not found on this node") if $crc != 0;
+my ($unpriv, $tags) = (0, '');
+for my $line (split /\n/, $conf) {
+    $unpriv = 1 if $line =~ /\Aunprivileged:\s*1\s*\z/;
+    $tags = $1 if $line =~ /\Atags:\s*(.*?)\s*\z/;
+}
+reject("container $vmid is privileged") unless $unpriv;
+reject("container $vmid lacks the " . TAG . " tag")
+    unless grep { $_ eq TAG } split(/[;, ]+/, $tags);
+
+# First stdin line = JSON. Read byte-by-byte so the remaining stdin stays
+# untouched in the fd for the child.
+my $line = '';
+while (1) {
+    my $n = sysread(STDIN, my $c, 1);
+    reject('stdin closed before the request line') if !defined($n) || $n == 0;
+    last if $c eq "\n";
+    $line .= $c;
+    reject('request line too large') if length($line) > MAX_JSON;
+}
+my $req = eval { JSON::PP->new->utf8->decode($line) };
+reject('malformed JSON') if !defined $req || ref($req) ne 'HASH';
+for my $k (keys %$req) { reject("unexpected key '$k'") unless $k eq 'env' || $k eq 'argv'; }
+
+my $argv = $req->{argv};
+reject('argv must be a non-empty list') unless ref($argv) eq 'ARRAY' && @$argv;
+reject('too many arguments') if @$argv > MAX_ARGV;
+for my $a (@$argv) {
+    reject('argv entries must be strings') unless is_string($a);
+    reject('argument too long') if length($a) > MAX_ARG_LEN;
+    reject('NUL in argument') if index($a, "\0") >= 0;
+}
+reject('invalid argv[0]') if $argv->[0] =~ /\A-/ || index($argv->[0], '=') >= 0 || $argv->[0] eq '';
+
+my @env_args;
+my $env = $req->{env} // {};
+reject('env must be an object') unless ref($env) eq 'HASH';
+reject('too many env entries') if keys(%$env) > MAX_ENV;
+for my $k (sort keys %$env) {
+    my $v = $env->{$k};
+    reject("invalid env name '$k'") unless $k =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
+    reject("forbidden env name '$k'") if $k =~ $FORBIDDEN_ENV;
+    reject("invalid env value for '$k'") unless is_string($v);
+    reject("env value too long for '$k'") if length($v) > MAX_ENV_LEN;
+    reject("NUL in env value for '$k'") if index($v, "\0") >= 0;
+    push @env_args, "$k=$v";
+}
+
+my $digest = sha256_hex(join("\0", @$argv));
+log_msg("exec vmid=$vmid argv_sha256=$digest env_count=" . scalar(@env_args));
+
+my @cmd = ($PCT, 'exec', $vmid, '--');
+push @cmd, 'env', @env_args if @env_args;
+push @cmd, @$argv;
+
+my $pid = fork();
+reject('fork failed') unless defined $pid;
+if ($pid == 0) {
+    POSIX::setpgid(0, 0);
+    exec { $cmd[0] } @cmd or POSIX::_exit(127);
+}
+my $timed_out = 0;
+local $SIG{ALRM} = sub { $timed_out = 1; kill('TERM', -$pid); };
+alarm(EXEC_TIMEOUT);
+reap($pid);
+alarm(0);
+my $rc = $timed_out ? 124 : (($? & 127) ? 128 + ($? & 127) : ($? >> 8));
+log_msg("exec vmid=$vmid argv_sha256=$digest rc=$rc");
+exit $rc;

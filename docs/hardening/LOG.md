@@ -10,3 +10,5 @@
 | 2026-09-30 | P0-06 | OK: ci.yml + dependabot.yml, acciones fijadas por SHA, actionlint limpio; `.gitleaks.toml` (allowlist solo `backend/tests/`) → gitleaks: no leaks | `actionlint .github/workflows/ci.yml; gitleaks detect --config .gitleaks.toml` |
 
 **Cierre P0:** línea base establecida (tests verdes, lint/mypy con ratchet), arnés de scripts de root con binarios simulados, CI mínimo y escaneos iniciales. Rojo documentado: `test_install_args.sh` (se resuelve en P2-01). Los pasos de auditoría del CI (bandit/pip-audit/pnpm audit) son `continue-on-error` hasta subir dependencias (decisión X4).
+| 2026-09-30 | P1-01 | OK: SSH-GATE.md contrastado con `connector._ssh_pct_exec`/`_build_install_env`/`_build_install_command` (env incluye `app`,`tz` en minúscula → regex de nombres ampliada, ver DECISIONS X6; env viaja dentro del CT vía env(1)) | revisión manual |
+| 2026-09-30 | P1-02 | OK: gate Perl `deploy/host/proxmox-gui-ssh-gate`; 99 aserciones en test_ssh_gate.sh (vmid inválido, CT inexistente/privilegiado/sin tag, env prohibido, JSON malformado/enorme, metacaracteres literales, stdin intacto); `perl -c` limpio | `deploy/tests/run.sh test_ssh_gate.sh` |

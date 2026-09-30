@@ -78,14 +78,14 @@ Cierre de fase: commit `chore(hardening): baseline, harness and CI`. Actualizar 
 
 Meta: que una app comprometida no pueda usar el canal SSH más allá de `pct exec` en contenedores propios.
 
-- [ ] **P1-01 Especificación.** Escribir `docs/hardening/SSH-GATE.md` con el protocolo entre cliente y gate.
+- [x] **P1-01 Especificación.** Escribir `docs/hardening/SSH-GATE.md` con el protocolo entre cliente y gate.
   Requisitos: la entrada de `authorized_keys` fuerza `command="/usr/local/sbin/proxmox-gui-ssh-gate"`; el cliente
   envía `SSH_ORIGINAL_COMMAND` = `preflight` o `exec <vmid>`; para `exec`, la primera línea de stdin es un JSON
   `{"env": {...}, "argv": [...]}` y el resto es el stdin del proceso (respuestas de whiptail). Sin `sh -c` del
   lado del gate: se invoca `pct exec <vmid> -- ...` con lista de argumentos.
   *Aceptación:* documento revisado contra cómo lo usa `provisioning_functions.py` (líneas ~360-380: qué `env`,
   `argv` y `stdin_data` se envían hoy) y contra `build.func` de community-scripts; la spec conserva ese comportamiento.
-- [ ] **P1-02 Gate del lado del host.** Implementar `deploy/host/proxmox-gui-ssh-gate` en Perl con `JSON::PP` (Perl está
+- [x] **P1-02 Gate del lado del host.** Implementar `deploy/host/proxmox-gui-ssh-gate` en Perl con `JSON::PP` (Perl está
   garantizado en PVE) o Bash si el protocolo lo permite sin parsear JSON. Reglas: `vmid` con `^[1-9][0-9]{2,8}$`;
   el CT debe existir en este nodo, tener `unprivileged: 1` y el tag `proxmox-gui` (D8); nombres de variables de
   entorno `^[A-Z_][A-Z0-9_]*$` y se rechazan `LD_*`, `BASH_ENV`, `ENV`, `PATH`, `IFS`; tamaño máximo de JSON y de
