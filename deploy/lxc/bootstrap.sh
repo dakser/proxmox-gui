@@ -198,22 +198,23 @@ install -m 0644 "${REL_DIR}/deploy/systemd/redis-server.service.d/proxmox-gui.co
     "${SYSTEMD_DIR}/redis-server.service.d/proxmox-gui.conf"
 install -m 0644 "${REL_DIR}/deploy/systemd/caddy.service.d/proxmox-gui.conf" \
     "${SYSTEMD_DIR}/caddy.service.d/proxmox-gui.conf"
-# The updater units (path + service) are installed by the release itself (P4).
-if [[ -d "${REL_DIR}/deploy/host-lxc" ]]; then
-    install -m 0755 -o root -g root "${REL_DIR}/deploy/host-lxc/proxmox-gui-updater" "${SBIN_DIR}/proxmox-gui-updater"
-    for unit in proxmox-gui-updater.path proxmox-gui-updater.service; do
-        install -m 0644 "${REL_DIR}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
-    done
-fi
+# Root updater + its path/service units (docs/hardening/UPDATER.md): the worker only writes a request.
+install -m 0755 "${REL_DIR}/deploy/host-lxc/proxmox-gui-updater" "${SBIN_DIR}/proxmox-gui-updater"
+for unit in proxmox-gui-updater.path proxmox-gui-updater.service; do
+    install -m 0644 "${REL_DIR}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
+done
+# Trust anchors for the updater, root-owned: signer key (delivered by install.sh, which verified
+# the release with it) and the installed toolchain record.
+[[ -n "${PGUI_SIGNERS_FILE:-}" && -f "${PGUI_SIGNERS_FILE}" ]] || die "PGUI_SIGNERS_FILE (allowed_signers from install.sh) is required"
+install -m 0644 "$PGUI_SIGNERS_FILE" "${ETC_DIR}/release-signers"
+install -m 0644 "${REL_DIR}/deploy/pins.env" "${ETC_DIR}/pins.env"
 install -m 0755 -o root -g root "${REL_DIR}/deploy/lxc/render-caddyfile.sh" "${SBIN_DIR}/proxmox-gui-caddy-render"
 
-# Release pinning for the updater: fixed to THIS fork/tag source by the installer (D2/F-04).
-if [[ -n "${PGUI_REPO_URL:-}" ]]; then
-    [[ "$PGUI_REPO_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "invalid PGUI_REPO_URL"
-    printf 'REPO_URL=%s\n' "$PGUI_REPO_URL" >"${ETC_DIR}/release.conf"
-    chown "root:${APP_USER}" "${ETC_DIR}/release.conf"
-    chmod 0644 "${ETC_DIR}/release.conf"
-fi
+# Release source for the updater: fixed to THIS fork by the installer (D2/F-04), never the upstream.
+[[ "${PGUI_REPO_URL:-}" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "PGUI_REPO_URL must be https://github.com/<owner>/<repo>"
+printf 'REPO_URL=%s\n' "$PGUI_REPO_URL" >"${ETC_DIR}/release.conf"
+chown root:root "${ETC_DIR}/release.conf"
+chmod 0644 "${ETC_DIR}/release.conf"
 
 info "Enabling services..."
 systemctl daemon-reload
@@ -222,9 +223,7 @@ systemctl restart redis-server.service
 systemctl enable proxmox-gui-caddy-render.service caddy.service
 systemctl restart caddy.service
 systemctl enable --now proxmox-gui-api.service proxmox-gui-worker.service proxmox-gui-frontend.service
-if [[ -d "${REL_DIR}/deploy/host-lxc" ]]; then
-    systemctl enable --now proxmox-gui-updater.path
-fi
+systemctl enable --now proxmox-gui-updater.path
 
 # ----------------------------------------------------------------------------
 # Step 10: marker (root-owned) + banner

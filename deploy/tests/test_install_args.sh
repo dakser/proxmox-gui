@@ -116,7 +116,7 @@ inst --update --ctid 150 --release v0.0.1
 assert_rc_nonzero "missing .installed marker"
 assert_not_logged "pct push" "nothing pushed"
 assert_not_logged "bootstrap" "nothing run"
-assert_not_logged "update.sh" "nothing run"
+assert_not_logged "proxmox-gui-updater" "nothing run"
 
 test_case "the created CT is unprivileged, tagged and marked"
 fresh

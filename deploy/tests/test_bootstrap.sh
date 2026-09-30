@@ -52,7 +52,8 @@ fresh() {
         cp "$src" "$out"
 H
 }
-boot() { run_cmd env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR="$T_TMP/src" PGUI_REPO_URL=https://github.com/o/r bash "$BOOT"; }
+echo "proxmox-gui-release namespaces=\"proxmox-gui-release\" ssh-ed25519 AAAAtest" >"$T_TMP/signers"
+boot() { run_cmd env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR="$T_TMP/src" PGUI_REPO_URL=https://github.com/o/r PGUI_SIGNERS_FILE="$T_TMP/signers" bash "$BOOT"; }
 
 test_case "successful bootstrap: layout, modes and privileges"
 fresh; boot
@@ -74,6 +75,11 @@ assert_no_file "$R/etc/proxmox-gui/gui_ed25519" "no SSH key unless community-scr
 assert_file "$R/etc/proxmox-gui/.installed" "marker"
 assert_eq "v0.0.1" "$(basename "$(readlink "$R/opt/proxmox-gui/current")")" "current -> release"
 assert_contains "$(cat "$R/etc/proxmox-gui/release.conf")" "REPO_URL=https://github.com/o/r" "release.conf pinned to the installing repo"
+assert_contains "$(cat "$R/etc/proxmox-gui/release-signers")" "proxmox-gui-release" "signer trust anchor delivered for the updater"
+assert_file "$R/etc/proxmox-gui/pins.env" "installed toolchain recorded for the updater"
+assert_mode "$R/usr/local/sbin/proxmox-gui-updater" 755
+assert_file "$R/etc/systemd/system/proxmox-gui-updater.path" "updater path unit"
+assert_logged "systemctl enable --now proxmox-gui-updater.path" "updater path unit enabled"
 
 test_case "no editable install, hashes required, no pip upgrade, no unpinned downloads"
 assert_logged "pip install --quiet --require-hashes --only-binary=:all: -r $REL/backend/requirements.lock" "hash-locked install"

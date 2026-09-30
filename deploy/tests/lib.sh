@@ -96,24 +96,16 @@ finish() {
     [[ "$_fail" -eq 0 ]]
 }
 
-# make_release <tag> [--no-gate]: builds a signed fake release under $T_TMP/rel:
-#   proxmox-gui-<tag>.tar.gz (flat layout), SHA256SUMS, SHA256SUMS.sig, signers file
-# and a curl shim that serves those files. Exports REL_DIR, SIGNERS, SIGN_KEY.
-make_release() {
-    local tag="$1" stage
+# sign_release <tag>: (re)computes SHA256SUMS and SHA256SUMS.sig for $REL_DIR/proxmox-gui-<tag>.tar.gz
+# with a throw-away test key, writes the matching allowed_signers file and installs the curl shim
+# that serves $REL_DIR. Exports REL_DIR, SIGNERS, SIGN_KEY.
+sign_release() {
+    local tag="$1"
     REL_DIR="$T_TMP/rel"; SIGNERS="$T_TMP/allowed_signers"; SIGN_KEY="$T_TMP/sign_key"
     export REL_DIR SIGNERS SIGN_KEY
-    rm -rf "$REL_DIR" "$T_TMP/stage"; mkdir -p "$REL_DIR"
-    stage="$T_TMP/stage"; mkdir -p "$stage/deploy/host" "$stage/deploy/lxc" "$stage/backend" "$stage/frontend/build"
-    cp "$DEPLOY_DIR/host/proxmox-gui-ssh-gate" "$stage/deploy/host/"
-    printf '#!/bin/sh\nexit 0\n' >"$stage/deploy/lxc/bootstrap.sh"
-    printf '#!/bin/sh\nexit 0\n' >"$stage/deploy/lxc/update.sh"
-    echo "x" >"$stage/backend/pyproject.toml"; echo "x" >"$stage/frontend/build/index.js"
-    tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -czf \
-        "$REL_DIR/proxmox-gui-${tag}.tar.gz" -C "$stage" backend frontend deploy
     [[ -f "$SIGN_KEY" ]] || ssh-keygen -t ed25519 -N "" -q -f "$SIGN_KEY" -C test-release
     (cd "$REL_DIR" && sha256sum "proxmox-gui-${tag}.tar.gz" >SHA256SUMS \
-        && ssh-keygen -Y sign -q -f "$SIGN_KEY" -n proxmox-gui-release SHA256SUMS)
+        && rm -f SHA256SUMS.sig && ssh-keygen -Y sign -q -f "$SIGN_KEY" -n proxmox-gui-release SHA256SUMS)
     printf 'proxmox-gui-release namespaces="proxmox-gui-release" %s\n' "$(cut -d' ' -f1,2 "$SIGN_KEY.pub")" >"$SIGNERS"
     shim_handler curl <<'H'
         local out="" url="" prev=""
@@ -122,8 +114,35 @@ make_release() {
             [[ "$a" == http* ]] && url="$a"
             prev="$a"
         done
+        if [[ "$url" == *"/health" ]]; then [[ -e "$T_TMP/health_fail" ]] && return 22; return 0; fi
         local src="$REL_DIR/$(basename "$url")"
         [[ -f "$src" ]] || return 22
         cp "$src" "$out"
 H
+}
+
+# make_release <tag>: builds a signed fake release under $T_TMP/rel (flat tar layout).
+# If a function named release_stage_hook exists it is called with the stage dir before packing,
+# so a test can add/remove files.
+make_release() {
+    local tag="$1" stage
+    REL_DIR="$T_TMP/rel"; export REL_DIR
+    rm -rf "$REL_DIR" "$T_TMP/stage"; mkdir -p "$REL_DIR"
+    stage="$T_TMP/stage"
+    mkdir -p "$stage/deploy/host" "$stage/deploy/lxc" "$stage/deploy/host-lxc" "$stage/deploy/systemd" \
+        "$stage/backend" "$stage/frontend/build"
+    cp "$DEPLOY_DIR/host/proxmox-gui-ssh-gate" "$stage/deploy/host/"
+    cp "$DEPLOY_DIR/host-lxc/proxmox-gui-updater" "$stage/deploy/host-lxc/" 2>/dev/null || true
+    cp "$DEPLOY_DIR/lxc/render-caddyfile.sh" "$stage/deploy/lxc/"
+    printf '#!/bin/sh\nexit 0\n' >"$stage/deploy/lxc/bootstrap.sh"
+    cp "$DEPLOY_DIR"/systemd/proxmox-gui-*.service "$stage/deploy/systemd/" 2>/dev/null || true
+    printf 'NODE_SHA256=aa\nPYTHON_SHA256=bb\n' >"$stage/deploy/pins.env"
+    echo "x" >"$stage/backend/pyproject.toml"; echo "pkg==1.0" >"$stage/backend/requirements.lock"
+    echo "[alembic]" >"$stage/backend/alembic.ini"; echo "x" >"$stage/frontend/build/index.js"
+    if declare -F release_stage_hook >/dev/null; then release_stage_hook "$stage"; fi
+    local -a top
+    mapfile -t top < <(find "$stage" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
+    tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -czf \
+        "$REL_DIR/proxmox-gui-${tag}.tar.gz" -C "$stage" "${top[@]}"
+    sign_release "$tag"
 }

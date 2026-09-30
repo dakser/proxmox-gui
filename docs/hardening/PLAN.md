@@ -186,9 +186,9 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P4 — Actualizaciones seguras (F-03, F-05, F-04)
 
-- [ ] **P4-01 Especificación.** `docs/hardening/UPDATER.md`: flujo, estados, formato de `status.json`, política de versiones
+- [x] **P4-01 Especificación.** `docs/hardening/UPDATER.md`: flujo, estados, formato de `status.json`, política de versiones
   (monótona; solo `--allow-downgrade` desde consola root), retención (actual + 2 anteriores), qué valida cada paso.
-- [ ] **P4-02 Updater raíz.** `deploy/host-lxc/proxmox-gui-updater` (instalado en `/usr/local/sbin`, `root:root` 0755). Subcomandos
+- [x] **P4-02 Updater raíz.** `deploy/host-lxc/proxmox-gui-updater` (instalado en `/usr/local/sbin`, `root:root` 0755). Subcomandos
   `apply`, `rollback`, `status`. Pasos: leer la solicitud (≤64 bytes, regex `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`, borrarla
   primero); obtener `SHA256SUMS`, `.sig` y tarball de la URL fijada en `/etc/proxmox-gui/release.conf` (propiedad de root);
   verificar firma y hash; extraer en un directorio temporal de root con `--no-same-owner --no-same-permissions`, rechazando
@@ -201,14 +201,14 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   *Aceptación:* `deploy/tests/test_updater.sh` con `curl`/`systemctl`/`runuser` falsos y un tarball de prueba firmado con una
   clave de prueba: éxito; firma inválida; hash inválido; tag hostil (`.`, `..`, `a b`, `$(id)`); tarball con `../` y con symlink
   externo; release igual al activo; downgrade; falla de migración → rollback con BD restaurada; falla de health → rollback.
-- [ ] **P4-03 Unidades.** `proxmox-gui-updater.path` (vigila `/var/lib/proxmox-gui/update/request`) y `proxmox-gui-updater.service`
+- [x] **P4-03 Unidades.** `proxmox-gui-updater.path` (vigila `/var/lib/proxmox-gui/update/request`) y `proxmox-gui-updater.service`
   (`Type=oneshot`, root, con `ProtectSystem=strict` y `ReadWritePaths` mínimos, `PrivateTmp`, `NoNewPrivileges`). `release.conf` fijado
   por el bootstrap desde el repo/tag con el que se instaló (D2/F-04: nunca el upstream por defecto).
 - [ ] **P4-04 Worker sin privilegios.** Reescribir `run_self_update` en `selfupdate_functions.py`: valida la versión pedida, escribe la
   solicitud, sondea `status.json` y refleja los estados en la fila del job. Sin `subprocess`, sin `sudo`, sin extraer nada.
   Adaptar `app/selfupdate/service.py` (manifest desde tu repo, configurable) y `test_selfupdate.py`.
   *Aceptación:* `pytest backend/tests/test_selfupdate.py` verde con casos nuevos: solicitud inválida, updater ausente, estado `failed`.
-- [ ] **P4-05 Ruta CLI.** `install.sh --update` deja de tener lógica propia: verifica la release en el host y escribe la solicitud /
+- [x] **P4-05 Ruta CLI.** `install.sh --update` deja de tener lógica propia: verifica la release en el host y escribe la solicitud /
   invoca el updater dentro del CT. Eliminar `deploy/lxc/update.sh` (o dejarlo como wrapper de una línea hacia el updater).
 
 ## P5 — Endurecimiento de la aplicación (F-06, F-09, F-11, F-12, F-13)

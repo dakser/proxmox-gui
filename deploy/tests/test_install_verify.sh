@@ -41,7 +41,7 @@ inst --signers "$SIGNERS" --release v0.0.1
 assert_rc 0 "install"
 assert_contains "$OUT" "signature and hash OK" "verification ran"
 assert_logged "pct push 200" "tarball pushed after verification"
-assert_logged "pct exec 200 -- env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL=https://github.com/dakser/proxmox-gui bash /root/pgui-src/deploy/lxc/bootstrap.sh" "bootstrap runs from the verified tarball"
+assert_logged "pct exec 200 -- env PGUI_RELEASE_TAG=v0.0.1 PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL=https://github.com/dakser/proxmox-gui PGUI_SIGNERS_FILE=/root/pgui-allowed-signers bash /root/pgui-src/deploy/lxc/bootstrap.sh" "bootstrap runs from the verified tarball"
 first_create="$(grep -n '^pct create' "$SHIM_LOG" | head -1 | cut -d: -f1)"
 first_curl="$(grep -n '^curl' "$SHIM_LOG" | head -1 | cut -d: -f1)"
 assert_eq "1" "$([[ "$first_curl" -lt "$first_create" ]] && echo 1 || echo 0)" "download+verify happen before pct create"
@@ -75,7 +75,7 @@ expect_abort "altered tarball"; assert_contains "$ERR" "SHA-256 mismatch" "messa
 
 test_case "tampered SHA256SUMS (signature no longer matches) aborts"
 fresh
-sed -i 's/^./0/' "$REL_DIR/SHA256SUMS"
+echo "0000000000000000000000000000000000000000000000000000000000000000  extra-file" >>"$REL_DIR/SHA256SUMS"
 inst --signers "$SIGNERS" --release v0.0.1
 expect_abort "altered SHA256SUMS"
 
@@ -104,6 +104,38 @@ printf 'garbage' >"$REL_DIR/SHA256SUMS.sig"
 inst --signers "$SIGNERS" --update --ctid 150 --release v0.0.1
 assert_rc_nonzero "update with bad signature"
 assert_not_logged "pct push" "nothing pushed on bad signature"
-assert_not_logged "update.sh" "update.sh not run on bad signature"
+assert_not_logged "proxmox-gui-updater" "updater not called on bad signature"
+
+test_case "update path delegates to the in-LXC updater (no logic of its own)"
+fresh
+shim_handler pct <<'H'
+    case "$1" in
+        status) echo "status: running"; return 0 ;;
+        config) echo "tags: proxmox-gui"; echo "description: proxmox-gui-managed"; return 0 ;;
+        exec) [[ "$*" == *"ip -4"* ]] && echo "2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0"; return 0 ;;
+    esac
+    return 0
+H
+inst --signers "$SIGNERS" --update --ctid 150 --release v0.0.1
+assert_rc 0 "update"
+assert_logged "pct exec 150 -- /usr/local/sbin/proxmox-gui-updater apply --tag v0.0.1" "updater invoked with the verified tag"
+assert_not_logged "--allow-downgrade" "no downgrade by default"
+assert_not_logged "pct push" "nothing pushed: the LXC downloads and re-verifies by itself"
+inst --signers "$SIGNERS" --update --ctid 150 --release v0.0.1 --allow-downgrade
+assert_logged "proxmox-gui-updater apply --tag v0.0.1 --allow-downgrade" "downgrade only when explicitly requested"
+shim_handler pct <<'H'
+    case "$1" in
+        status) echo "status: running"; return 0 ;;
+        config) echo "tags: proxmox-gui"; echo "description: proxmox-gui-managed"; return 0 ;;
+        exec) [[ "$*" == *"proxmox-gui-updater"* ]] && return 1; [[ "$*" == *"ip -4"* ]] && echo "2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0"; return 0 ;;
+    esac
+    return 0
+H
+inst --signers "$SIGNERS" --update --ctid 150 --release v0.0.1
+assert_rc_nonzero "updater failure propagates"
+assert_contains "$ERR" "updater failed" "message"
+fresh
+inst --signers "$SIGNERS" --release v0.0.1 --allow-downgrade
+assert_rc_nonzero "--allow-downgrade is update-only"
 
 finish

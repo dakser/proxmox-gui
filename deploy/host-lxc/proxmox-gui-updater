@@ -1,0 +1,498 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+#
+# proxmox-gui-updater — root-owned updater INSIDE the GUI LXC (F-03/F-04/F-05).
+# Installed as /usr/local/sbin/proxmox-gui-updater (root:root 0755). Design: docs/hardening/UPDATER.md.
+#
+#   proxmox-gui-updater apply [--tag vX.Y.Z] [--allow-downgrade]
+#   proxmox-gui-updater rollback [--restore-db]
+#   proxmox-gui-updater status
+#
+# `apply` without --tag reads the request file written by the (unprivileged) worker and deletes it first.
+# Only releases signed by the key in /etc/proxmox-gui/release-signers are ever installed.
+#
+# Test prefix: PGUI_ROOT relocates every path; PGUI_PYTHON / PGUI_DOWNLOAD_BASE / PGUI_HEALTH_URL /
+# PGUI_HEALTH_ATTEMPTS / PGUI_WORKER_DELAY are honoured ONLY when PGUI_ROOT is set.
+
+set -euo pipefail
+umask 022
+
+ROOT="${PGUI_ROOT:-}"
+APP_HOME="${ROOT}/opt/proxmox-gui"
+RELEASES_DIR="${APP_HOME}/releases"
+CURRENT_LINK="${APP_HOME}/current"
+PREVIOUS_LINK="${APP_HOME}/previous"
+ETC_DIR="${ROOT}/etc/proxmox-gui"
+DATA_DIR="${ROOT}/var/lib/proxmox-gui"
+REQUEST_FILE="${DATA_DIR}/update/request"
+BACKUP_DIR="${DATA_DIR}/backups"
+STATUS_DIR="${ROOT}/run/proxmox-gui-updater"
+STATUS_FILE="${STATUS_DIR}/status.json"
+SYSTEMD_DIR="${ROOT}/etc/systemd/system"
+SBIN_DIR="${ROOT}/usr/local/sbin"
+DB_FILE="${DATA_DIR}/app.db"
+APP_USER="proxmox-gui"
+SIGN_NAMESPACE="proxmox-gui-release"
+SIGNER_IDENTITY="proxmox-gui-release"
+
+PYTHON_BIN="${ROOT}/opt/python/python/bin/python3.12"
+HEALTH_URL="http://127.0.0.1:8000/api/v1/health"
+HEALTH_ATTEMPTS=30
+WORKER_DELAY=5
+DOWNLOAD_BASE_OVERRIDE=""
+if [[ -n "$ROOT" ]]; then
+    PYTHON_BIN="${PGUI_PYTHON:-$PYTHON_BIN}"
+    HEALTH_URL="${PGUI_HEALTH_URL:-$HEALTH_URL}"
+    HEALTH_ATTEMPTS="${PGUI_HEALTH_ATTEMPTS:-$HEALTH_ATTEMPTS}"
+    WORKER_DELAY="${PGUI_WORKER_DELAY:-0}"
+    DOWNLOAD_BASE_OVERRIDE="${PGUI_DOWNLOAD_BASE:-}"
+fi
+
+TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+MAX_TARBALL_BYTES=$((400 * 1024 * 1024))
+MAX_SUMS_BYTES=$((64 * 1024))
+
+TMP=""
+TARGET=""
+FROM=""
+NEW_DIR=""
+PREV_TARGET=""
+SWAPPED=0
+MIGRATION_STARTED=0
+BACKUP_PATH=""
+FINISHED=0
+
+log() { echo "updater: $*"; }
+
+# ---------------------------------------------------------------------------
+# status.json (atomic, ASCII-only message)
+# ---------------------------------------------------------------------------
+json_safe() { printf '%s' "$1" | tr -c 'A-Za-z0-9 ._:/@+=,()-' '_' | cut -c1-300; }
+
+write_status() {  # write_status <state> <step> <message> [rolled_back true|false]
+    mkdir -p "$STATUS_DIR"
+    local tmp
+    tmp="$(mktemp "${STATUS_DIR}/.status.XXXXXX")"
+    printf '{"state":"%s","step":"%s","target":"%s","from":"%s","message":"%s","rolled_back":%s,"updated_at":"%s"}\n' \
+        "$(json_safe "$1")" "$(json_safe "$2")" "$(json_safe "$TARGET")" "$(json_safe "$FROM")" \
+        "$(json_safe "$3")" "${4:-false}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$STATUS_FILE"
+}
+
+step() { log "$1"; write_status running "$1" "$2"; }
+
+# ---------------------------------------------------------------------------
+# Failure handling: rollback, then report
+# ---------------------------------------------------------------------------
+restart_units() {
+    systemctl restart proxmox-gui-api.service || true
+    systemctl restart proxmox-gui-frontend.service || true
+    systemctl restart proxmox-gui-worker.service || true
+}
+
+rollback_state() {  # undo a partially applied update; prints a short summary
+    local msgs="" db_restored=0
+    if [[ "$SWAPPED" -eq 1 && -n "$PREV_TARGET" ]]; then
+        ln -sfn "$PREV_TARGET" "${CURRENT_LINK}.new" && mv -T "${CURRENT_LINK}.new" "$CURRENT_LINK" \
+            && msgs="${msgs}symlink restored; "
+    fi
+    # The database is restored ONLY if the migration actually started, and only with the
+    # services that hold it open stopped (an in-place swap under a live process would diverge).
+    if [[ "$MIGRATION_STARTED" -eq 1 && -n "$BACKUP_PATH" && -f "$BACKUP_PATH" ]]; then
+        systemctl stop proxmox-gui-api.service proxmox-gui-worker.service || true
+        if cp -f "$BACKUP_PATH" "${DB_FILE}.restore" && mv -f "${DB_FILE}.restore" "$DB_FILE"; then
+            rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
+            chown "${APP_USER}:${APP_USER}" "$DB_FILE" 2>/dev/null || true
+            db_restored=1
+            msgs="${msgs}database restored; "
+        fi
+    fi
+    if [[ "$SWAPPED" -eq 1 || "$db_restored" -eq 1 ]]; then restart_units; msgs="${msgs}services restarted; "; fi
+    if [[ -n "$NEW_DIR" && -d "$NEW_DIR" && "$NEW_DIR" != "$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)" ]]; then
+        rm -rf "$NEW_DIR"
+    fi
+    echo "$msgs"
+}
+
+fail() {  # fail <message> — roll back whatever was done and exit 1
+    local msg="$1" rb=""
+    log "FAILED: $msg"
+    rb="$(rollback_state)"
+    FINISHED=1
+    write_status failed "failed" "${msg}${rb:+ (rollback: ${rb%; })}" "$([[ -n "$rb" ]] && echo true || echo false)"
+    exit 1
+}
+
+on_exit() {
+    local rc=$?
+    if [[ -n "$TMP" && -d "$TMP" ]]; then rm -rf "$TMP"; fi
+    if [[ "$rc" -ne 0 && "$FINISHED" -eq 0 && "${MODE:-}" == "apply" ]]; then
+        FINISHED=1
+        local rb
+        rb="$(rollback_state)"
+        write_status failed "unexpected-error" "unexpected error (rc=${rc})${rb:+ (rollback: ${rb%; })}" "$([[ -n "$rb" ]] && echo true || echo false)"
+    fi
+}
+trap on_exit EXIT
+
+# ---------------------------------------------------------------------------
+# Version comparison: semver-ish, a release beats its own prerelease.
+# ver_cmp a b -> prints -1, 0 or 1
+# ---------------------------------------------------------------------------
+ver_cmp() {
+    local a="${1#v}" b="${2#v}" ca cb pa pb
+    ca="${a%%-*}"; cb="${b%%-*}"
+    pa=""; pb=""
+    [[ "$a" == *-* ]] && pa="${a#*-}"
+    [[ "$b" == *-* ]] && pb="${b#*-}"
+    local IFS=.
+    local -a xa xb
+    read -r -a xa <<<"$ca"; read -r -a xb <<<"$cb"
+    local i
+    for i in 0 1 2; do
+        local x=$((10#${xa[$i]:-0})) y=$((10#${xb[$i]:-0}))
+        if (( x < y )); then echo -1; return; fi
+        if (( x > y )); then echo 1; return; fi
+    done
+    if [[ -z "$pa" && -z "$pb" ]]; then echo 0; return; fi
+    if [[ -z "$pa" ]]; then echo 1; return; fi
+    if [[ -z "$pb" ]]; then echo -1; return; fi
+    if [[ "$pa" == "$pb" ]]; then echo 0; return; fi
+    if [[ "$pa" < "$pb" ]]; then echo -1; else echo 1; fi
+}
+
+# ---------------------------------------------------------------------------
+# Python tar validator (reads the archive listing only; nothing is extracted)
+# ---------------------------------------------------------------------------
+validate_tarball() {  # validate_tarball <tar.gz>
+    "$PYTHON_BIN" - "$1" <<'PY'
+import posixpath
+import sys
+import tarfile
+
+MAX_MEMBERS = 100000
+path = sys.argv[1]
+problems = []
+try:
+    tf = tarfile.open(path, "r:gz")
+except Exception as exc:  # noqa: BLE001
+    print(f"cannot open archive: {exc}")
+    sys.exit(1)
+count = 0
+for m in tf:
+    count += 1
+    if count > MAX_MEMBERS:
+        problems.append("too many members")
+        break
+    name = m.name
+    if not name or name.startswith("/") or any(ord(c) < 32 or ord(c) == 127 for c in name):
+        problems.append(f"bad name {name!r}")
+        continue
+    parts = name.split("/")
+    if ".." in parts:
+        problems.append(f"path traversal in {name!r}")
+        continue
+    if m.isdir() or m.isreg():
+        if m.mode & 0o6000:
+            problems.append(f"setuid/setgid bit on {name!r}")
+        continue
+    if m.issym():
+        target = m.linkname
+        if target.startswith("/") or any(ord(c) < 32 for c in target):
+            problems.append(f"symlink {name!r} -> absolute or odd target {target!r}")
+            continue
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+        if resolved.startswith("../") or resolved == "..":
+            problems.append(f"symlink {name!r} escapes the tree ({target!r})")
+        continue
+    problems.append(f"disallowed member type for {name!r} (hardlink/device/fifo)")
+if problems:
+    print("; ".join(problems[:5]))
+    sys.exit(1)
+PY
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+current_tag() {
+    local t
+    t="$(readlink "$CURRENT_LINK" 2>/dev/null || true)"
+    basename "$t"
+}
+
+read_repo_url() {
+    local url
+    url="$(sed -n 's/^REPO_URL=\(https:\/\/github\.com\/[A-Za-z0-9_.-]\{1,100\}\/[A-Za-z0-9_.-]\{1,100\}\)$/\1/p' \
+        "${ETC_DIR}/release.conf" 2>/dev/null | head -1)"
+    [[ -n "$url" && "$url" != *..* && "$url" != *.git ]] || return 1
+    echo "$url"
+}
+
+health_ok() {
+    local i
+    for ((i = 0; i < HEALTH_ATTEMPTS; i++)); do
+        if curl -fsS --max-time 3 -o /dev/null "$HEALTH_URL" 2>/dev/null; then return 0; fi
+        sleep 2
+    done
+    return 1
+}
+
+prune_releases() {
+    # keep current + previous + the most recent other one (3 total); never touch active/previous.
+    local keep_a keep_b
+    keep_a="$(basename "$(readlink "$CURRENT_LINK" 2>/dev/null || true)")"
+    keep_b="$(basename "$(readlink "$PREVIOUS_LINK" 2>/dev/null || true)")"
+    local -a tags=()
+    local d
+    for d in "$RELEASES_DIR"/*/; do
+        [[ -d "$d" ]] || continue
+        d="$(basename "$d")"
+        [[ "$d" =~ $TAG_RE ]] && tags+=("$d")
+    done
+    # sort by version descending (bubble; the list is tiny)
+    local i j t
+    for ((i = 0; i < ${#tags[@]}; i++)); do
+        for ((j = i + 1; j < ${#tags[@]}; j++)); do
+            if [[ "$(ver_cmp "${tags[$j]}" "${tags[$i]}")" == 1 ]]; then t="${tags[$i]}"; tags[i]="${tags[$j]}"; tags[j]="$t"; fi
+        done
+    done
+    local kept=0 tag
+    for tag in "${tags[@]}"; do
+        if [[ "$tag" == "$keep_a" || "$tag" == "$keep_b" ]]; then kept=$((kept + 1)); continue; fi
+        if (( kept < 3 )); then kept=$((kept + 1)); continue; fi
+        log "pruning old release $tag"
+        rm -rf "${RELEASES_DIR:?}/${tag}"
+    done
+    # backups: keep the 5 most recent
+    local -a backups=()
+    while IFS= read -r f; do backups+=("$f"); done < <(ls -1t "$BACKUP_DIR"/app-*.db 2>/dev/null || true)
+    for ((i = 5; i < ${#backups[@]}; i++)); do rm -f "${backups[$i]}"; done
+}
+
+# ---------------------------------------------------------------------------
+# apply
+# ---------------------------------------------------------------------------
+cmd_apply() {
+    local allow_downgrade=0 cli_tag=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tag) [[ $# -ge 2 ]] || { echo "ERROR: --tag needs a value" >&2; exit 2; }; cli_tag="$2"; shift 2 ;;
+            --allow-downgrade) allow_downgrade=1; shift ;;
+            *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+        esac
+    done
+    mkdir -p "$STATUS_DIR"
+    exec 9>"${STATUS_DIR}/lock"
+    flock -n 9 || { echo "ERROR: another update is running" >&2; exit 1; }
+
+    FROM="$(current_tag)"
+    # -- request ---------------------------------------------------------
+    if [[ -n "$cli_tag" ]]; then
+        TARGET="$cli_tag"
+    else
+        [[ -f "$REQUEST_FILE" && ! -L "$REQUEST_FILE" ]] || { log "no request file; nothing to do"; FINISHED=1; exit 0; }
+        local raw
+        raw="$(head -c 65 "$REQUEST_FILE" || true)"
+        rm -f "$REQUEST_FILE" || { write_status failed "request" "could not delete the request file"; FINISHED=1; exit 1; }
+        TARGET="$(printf '%s' "$raw" | tr -d '\n\r' )"
+        if [[ ${#raw} -gt 64 ]]; then TARGET=""; fi
+        allow_downgrade=0   # never honoured from the worker's request
+    fi
+    if [[ ! "$TARGET" =~ $TAG_RE || "$TARGET" == *..* || ${#TARGET} -gt 64 ]]; then
+        local bad="$TARGET"; TARGET=""
+        write_status failed "request" "invalid release request: $(json_safe "${bad:0:40}")"
+        FINISHED=1; log "invalid request"; exit 1
+    fi
+    step "validating" "checking version policy"
+
+    # -- version policy --------------------------------------------------
+    if [[ -n "$FROM" ]]; then
+        local cmp
+        cmp="$(ver_cmp "$TARGET" "$FROM")"
+        if [[ "$cmp" == 0 ]]; then
+            FINISHED=1; write_status noop "noop" "already running $FROM"; log "already at $FROM"; exit 0
+        fi
+        if [[ "$cmp" == -1 && "$allow_downgrade" -ne 1 ]]; then
+            FINISHED=1; write_status failed "version-policy" "refusing to downgrade from $FROM to $TARGET (use --allow-downgrade from the root console)"
+            exit 1
+        fi
+    fi
+
+    local repo_url base
+    repo_url="$(read_repo_url)" || fail "release.conf missing or has an invalid REPO_URL"
+    base="${DOWNLOAD_BASE_OVERRIDE:-${repo_url}/releases/download/${TARGET}}"
+    [[ -f "${ETC_DIR}/release-signers" ]] || fail "release-signers missing"
+    grep -q 'REEMPLAZAR-CON-TU-CLAVE-PUBLICA' "${ETC_DIR}/release-signers" && fail "release signer key is still a placeholder"
+
+    # -- download --------------------------------------------------------
+    step "downloading" "fetching $TARGET"
+    TMP="$(mktemp -d)"
+    local name="proxmox-gui-${TARGET}.tar.gz"
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 2 --max-filesize "$MAX_SUMS_BYTES" -o "${TMP}/SHA256SUMS" "${base}/SHA256SUMS" \
+        || fail "could not download SHA256SUMS for $TARGET"
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 2 --max-filesize "$MAX_SUMS_BYTES" -o "${TMP}/SHA256SUMS.sig" "${base}/SHA256SUMS.sig" \
+        || fail "could not download SHA256SUMS.sig for $TARGET"
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 2 --max-filesize "$MAX_TARBALL_BYTES" -o "${TMP}/${name}" "${base}/${name}" \
+        || fail "could not download the release tarball for $TARGET"
+
+    # -- verify ----------------------------------------------------------
+    step "verifying" "checking signature and hash"
+    ssh-keygen -Y verify -f "${ETC_DIR}/release-signers" -I "$SIGNER_IDENTITY" -n "$SIGN_NAMESPACE" \
+        -s "${TMP}/SHA256SUMS.sig" <"${TMP}/SHA256SUMS" >/dev/null 2>&1 \
+        || fail "signature verification failed for SHA256SUMS"
+    local expected actual
+    expected="$(awk -v f="$name" '$2 == f || $2 == "*" f {print $1}' "${TMP}/SHA256SUMS")"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail "SHA256SUMS has no valid entry for $name"
+    actual="$(sha256sum "${TMP}/${name}" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || fail "SHA-256 mismatch for $name"
+
+    step "inspecting" "validating archive members"
+    local why
+    if ! why="$(validate_tarball "${TMP}/${name}" 2>&1)"; then fail "unsafe tarball: ${why}"; fi
+
+    # -- extract into a NEW release dir (never the active/previous one) ----
+    NEW_DIR="${RELEASES_DIR}/${TARGET}"
+    if [[ -e "$NEW_DIR" ]]; then
+        local real_new real_cur real_prev
+        real_new="$(readlink -f "$NEW_DIR")"
+        real_cur="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+        real_prev="$(readlink -f "$PREVIOUS_LINK" 2>/dev/null || true)"
+        if [[ "$real_new" == "$real_cur" || "$real_new" == "$real_prev" ]]; then
+            NEW_DIR=""; fail "refusing to overwrite the active or previous release ($TARGET)"
+        fi
+        rm -rf "$NEW_DIR"   # leftover of an earlier failed attempt
+    fi
+    step "extracting" "unpacking into releases/${TARGET}"
+    mkdir -p "$RELEASES_DIR"
+    mkdir "$NEW_DIR"
+    tar -xzf "${TMP}/${name}" -C "$NEW_DIR" --no-same-owner --no-same-permissions \
+        || fail "extraction failed"
+    for req in backend deploy frontend backend/requirements.lock deploy/pins.env frontend/build/index.js; do
+        [[ -e "${NEW_DIR}/${req}" ]] || fail "release lacks ${req}"
+    done
+    [[ ! -e "${NEW_DIR}/.venv" ]] || fail "release must not ship a .venv"
+    chown -R root:root "$NEW_DIR"
+    chmod -R u=rwX,go=rX "$NEW_DIR"
+
+    # -- toolchain must be the one installed ------------------------------
+    if [[ -f "${ETC_DIR}/pins.env" ]]; then
+        local k
+        for k in NODE_SHA256 PYTHON_SHA256; do
+            if [[ "$(grep "^${k}=" "${ETC_DIR}/pins.env" | head -1)" != "$(grep "^${k}=" "${NEW_DIR}/deploy/pins.env" | head -1)" ]]; then
+                fail "release changes the pinned toolchain (${k}); re-run install.sh --update from the host instead"
+            fi
+        done
+    fi
+
+    # -- venv (hash-locked, non-editable) ----------------------------------
+    step "installing" "building the virtualenv from requirements.lock"
+    "$PYTHON_BIN" -m venv "${NEW_DIR}/.venv" || fail "could not create the virtualenv"
+    "${NEW_DIR}/.venv/bin/pip" install --quiet --require-hashes --only-binary=:all: \
+        -r "${NEW_DIR}/backend/requirements.lock" || fail "dependency installation failed"
+    "${NEW_DIR}/.venv/bin/pip" install --quiet --no-deps --no-build-isolation --no-index "${NEW_DIR}/backend" \
+        || fail "backend installation failed"
+    chown -R root:root "${NEW_DIR}/.venv"
+    chmod -R u=rwX,go=rX "${NEW_DIR}/.venv"
+
+    # -- backup ------------------------------------------------------------
+    if [[ -f "$DB_FILE" ]]; then
+        step "backing-up" "snapshotting the database"
+        mkdir -p "$BACKUP_DIR"
+        BACKUP_PATH="${BACKUP_DIR}/app-$(date -u +%Y%m%dT%H%M%SZ)-pre-${TARGET}.db"
+        sqlite3 "$DB_FILE" ".backup '${BACKUP_PATH}'" || fail "database backup failed"
+        chown "root:${APP_USER}" "$BACKUP_PATH" 2>/dev/null || true
+        chmod 0640 "$BACKUP_PATH"
+        ln -sfn "$(basename "$BACKUP_PATH")" "${BACKUP_DIR}/last-pre-update.db"
+    fi
+
+    # -- migrate as the unprivileged user -----------------------------------
+    step "migrating" "alembic upgrade head"
+    MIGRATION_STARTED=1
+    (
+        cd "${NEW_DIR}/backend"
+        runuser -u "$APP_USER" -- env PROXMOX_GUI_DATABASE_URL="sqlite+aiosqlite:////var/lib/proxmox-gui/app.db" \
+            "${NEW_DIR}/.venv/bin/alembic" -c "${NEW_DIR}/backend/alembic.ini" upgrade head
+    ) || fail "database migration failed"
+
+    # -- swap ---------------------------------------------------------------
+    step "switching" "activating $TARGET"
+    PREV_TARGET="$(readlink "$CURRENT_LINK" 2>/dev/null || true)"
+    if [[ -n "$PREV_TARGET" ]]; then ln -sfn "$PREV_TARGET" "${PREVIOUS_LINK}.new" && mv -T "${PREVIOUS_LINK}.new" "$PREVIOUS_LINK"; fi
+    ln -sfn "releases/${TARGET}" "${CURRENT_LINK}.new"
+    mv -T "${CURRENT_LINK}.new" "$CURRENT_LINK"
+    SWAPPED=1
+
+    mkdir -p "$SYSTEMD_DIR" "$SBIN_DIR"
+    local unit
+    for unit in proxmox-gui-api.service proxmox-gui-worker.service proxmox-gui-frontend.service \
+                proxmox-gui-caddy-render.service proxmox-gui-updater.service proxmox-gui-updater.path; do
+        if [[ -f "${NEW_DIR}/deploy/systemd/${unit}" ]]; then
+            install -m 0644 "${NEW_DIR}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
+        fi
+    done
+    install -m 0755 "${NEW_DIR}/deploy/lxc/render-caddyfile.sh" "${SBIN_DIR}/proxmox-gui-caddy-render"
+    install -m 0755 "${NEW_DIR}/deploy/host-lxc/proxmox-gui-updater" "${SBIN_DIR}/proxmox-gui-updater.new"
+    mv -f "${SBIN_DIR}/proxmox-gui-updater.new" "${SBIN_DIR}/proxmox-gui-updater"
+    cp -f "${NEW_DIR}/deploy/pins.env" "${ETC_DIR}/pins.env"
+    systemctl daemon-reload
+
+    # -- restart + health ---------------------------------------------------
+    step "restarting" "restarting the API and waiting for /api/v1/health"
+    systemctl restart proxmox-gui-api.service || fail "API restart failed"
+    health_ok || fail "post-update health check failed"
+    systemctl restart proxmox-gui-frontend.service || fail "frontend restart failed"
+
+    FINISHED=1
+    write_status succeeded "done" "updated from ${FROM:-none} to ${TARGET}"
+    log "update to $TARGET succeeded"
+    prune_releases
+    # Give the worker's poll loop time to see `succeeded`, then restart it last (it is stale now).
+    sleep "$WORKER_DELAY"
+    systemctl restart proxmox-gui-worker.service || log "WARN: worker restart failed"
+}
+
+# ---------------------------------------------------------------------------
+# rollback (manual, root console)
+# ---------------------------------------------------------------------------
+cmd_rollback() {
+    local restore_db=0
+    [[ "${1:-}" == "--restore-db" ]] && restore_db=1
+    local prev
+    prev="$(readlink "$PREVIOUS_LINK" 2>/dev/null || true)"
+    [[ -n "$prev" && -d "${APP_HOME}/${prev}" || -d "$prev" ]] || { echo "ERROR: no previous release to roll back to" >&2; exit 1; }
+    FROM="$(current_tag)"; TARGET="$(basename "$prev")"
+    local cur_target
+    cur_target="$(readlink "$CURRENT_LINK")"
+    ln -sfn "$prev" "${CURRENT_LINK}.new"
+    mv -T "${CURRENT_LINK}.new" "$CURRENT_LINK"
+    ln -sfn "$cur_target" "${PREVIOUS_LINK}.new"
+    mv -T "${PREVIOUS_LINK}.new" "$PREVIOUS_LINK"
+    if [[ "$restore_db" -eq 1 ]]; then
+        local last="${BACKUP_DIR}/last-pre-update.db"
+        [[ -f "$last" ]] || { echo "ERROR: no pre-update backup to restore" >&2; exit 1; }
+        cp -f "$last" "${DB_FILE}.restore"
+        mv -f "${DB_FILE}.restore" "$DB_FILE"
+        rm -f "${DB_FILE}-wal" "${DB_FILE}-shm"
+        chown "${APP_USER}:${APP_USER}" "$DB_FILE" 2>/dev/null || true
+    fi
+    systemctl restart proxmox-gui-api.service proxmox-gui-frontend.service proxmox-gui-worker.service
+    write_status succeeded "rollback" "rolled back to ${TARGET}$([[ $restore_db -eq 1 ]] && echo ' with database restore')"
+    log "rolled back to $TARGET"
+}
+
+cmd_status() {
+    echo "current:  $(current_tag)"
+    echo "previous: $(basename "$(readlink "$PREVIOUS_LINK" 2>/dev/null || true)")"
+    if [[ -f "$STATUS_FILE" ]]; then cat "$STATUS_FILE"; else echo '{"state":"idle"}'; fi
+}
+
+MODE="${1:-}"
+[[ $# -gt 0 ]] && shift
+case "$MODE" in
+    apply)    cmd_apply "$@" ;;
+    rollback) cmd_rollback "$@" ;;
+    status)   cmd_status ;;
+    *) echo "usage: proxmox-gui-updater apply [--tag vX.Y.Z] [--allow-downgrade] | rollback [--restore-db] | status" >&2; exit 2 ;;
+esac

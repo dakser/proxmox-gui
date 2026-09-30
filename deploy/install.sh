@@ -18,7 +18,7 @@
 #   4. Only with --enable-community-scripts: installs the SSH gate on this node
 #      and a restricted authorized_keys entry for the GUI's key (F-01, opt-in).
 #
-# Other modes: --update (existing GUI LXC, same verification) and
+# Other modes: --update (existing GUI LXC: verified here, then applied by the in-LXC updater) and
 # --uninstall --ctid N [--purge] (revoke SSH trust; --purge destroys the LXC).
 #
 # Trust anchor: the signer key below. The install.sh you run is the only
@@ -94,6 +94,8 @@ Flags (defaults shown):
   --update        update the existing GUI LXC given by --ctid
   --uninstall     remove SSH trust for --ctid (and the gate if it was the last entry)
   --purge         with --uninstall: also destroy the LXC (asks you to type the CTID)
+  --allow-downgrade
+                  with --update: permit installing an OLDER release (default: refused)
   -h, --help      this help
 
 Environment (fallbacks; flags win): PGUI_CTID PGUI_CT_HOSTNAME PGUI_CPU PGUI_RAM_MB
@@ -120,6 +122,7 @@ HOST_IP=""
 MODE="install"
 ENABLE_COMMUNITY=0
 PURGE=0
+ALLOW_DOWNGRADE=0
 
 need_value() {  # need_value <flag> <remaining-arg-count> <next-arg>
     if [[ "$2" -lt 2 || -z "$3" || "$3" == --* ]]; then
@@ -146,6 +149,7 @@ while [[ $# -gt 0 ]]; do
         --update)    MODE="update";    shift ;;
         --uninstall) MODE="uninstall"; shift ;;
         --purge)     PURGE=1;          shift ;;
+        --allow-downgrade) ALLOW_DOWNGRADE=1; shift ;;
         -h|--help)   usage; exit 0 ;;
         *) die "unknown flag: $1 (try --help)" ;;
     esac
@@ -185,6 +189,7 @@ validate_inputs() {
     fi
     if [[ "$MODE" != "install" && -z "$CTID" ]]; then die "--ctid is required with --update/--uninstall"; fi
     if [[ "$PURGE" -eq 1 && "$MODE" != "uninstall" ]]; then die "--purge only makes sense with --uninstall"; fi
+    if [[ "$ALLOW_DOWNGRADE" -eq 1 && "$MODE" != "update" ]]; then die "--allow-downgrade only makes sense with --update"; fi
     if [[ "$ENABLE_COMMUNITY" -eq 1 && "$MODE" == "uninstall" ]]; then die "--enable-community-scripts cannot be combined with --uninstall"; fi
 }
 validate_inputs
@@ -320,6 +325,8 @@ stage_release_in_ct() {
     info "Staging the verified release inside CTID $CTID..."
     pct push "$CTID" "${TMPDIR_INSTALL}/${TARBALL_NAME}" /root/pgui-release.tar.gz --perms 0600
     pct push "$CTID" "${TMPDIR_INSTALL}/expected.sha256" /root/pgui-expected.sha256 --perms 0600
+    # Trust anchor for the in-LXC updater: the very signer file this run verified the release with.
+    pct push "$CTID" "${TMPDIR_INSTALL}/allowed_signers" /root/pgui-allowed-signers --perms 0644
     pct exec "$CTID" -- bash -c '
         set -euo pipefail
         cd /root
@@ -438,10 +445,14 @@ if [[ "$MODE" == "update" ]]; then
         pct start "$CTID"
     fi
     wait_for_ct_ip || die "LXC did not acquire an IPv4 address"
-    stage_release_in_ct
-    info "Running update.sh from the verified release inside CTID $CTID..."
-    pct exec "$CTID" -- env RELEASE_TAG="$RELEASE" RELEASE_TARBALL=/root/pgui-release.tar.gz \
-        bash /root/pgui-src/deploy/lxc/update.sh
+    # No logic of its own: the root updater INSIDE the LXC downloads, re-verifies (signature + hash
+    # against the signer key installed with the LXC), validates the tarball, backs up, migrates,
+    # switches atomically and rolls back on failure (docs/hardening/UPDATER.md).
+    info "Asking the in-LXC updater to install $RELEASE (verified again inside the LXC)..."
+    local_args=(apply --tag "$RELEASE")
+    if [[ "$ALLOW_DOWNGRADE" -eq 1 ]]; then local_args+=(--allow-downgrade); fi
+    pct exec "$CTID" -- /usr/local/sbin/proxmox-gui-updater "${local_args[@]}" \
+        || die "the updater failed (it rolled back if it had started); see: pct exec $CTID -- proxmox-gui-updater status"
     if [[ "$ENABLE_COMMUNITY" -eq 1 ]]; then enable_community_scripts; fi
     cat <<EOF
 
@@ -518,7 +529,7 @@ wait_for_ct_ip || die "LXC did not acquire an IPv4 address within 60s (check: pc
 
 stage_release_in_ct
 info "Running bootstrap.sh from the verified release inside the LXC..."
-pct exec "$CTID" -- env PGUI_RELEASE_TAG="$RELEASE" PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL="$REPO_URL" \
+pct exec "$CTID" -- env PGUI_RELEASE_TAG="$RELEASE" PGUI_SRC_DIR=/root/pgui-src PGUI_REPO_URL="$REPO_URL" PGUI_SIGNERS_FILE=/root/pgui-allowed-signers \
     bash /root/pgui-src/deploy/lxc/bootstrap.sh
 
 if [[ "$ENABLE_COMMUNITY" -eq 1 ]]; then enable_community_scripts; fi
