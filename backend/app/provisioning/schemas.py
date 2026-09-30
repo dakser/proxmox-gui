@@ -23,10 +23,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.lifecycle.schemas import JobAcceptedResponse
+
 #: PVE tag the host SSH gate requires before it will `pct exec` into a container.
 COMMUNITY_SCRIPT_TAG = "proxmox-gui"
-
-from app.lifecycle.schemas import JobAcceptedResponse
 
 # ---------------------------------------------------------------------------
 # Shared network sub-model

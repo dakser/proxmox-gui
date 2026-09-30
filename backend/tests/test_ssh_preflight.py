@@ -78,7 +78,7 @@ async def test_preflight_disabled_channel_is_ok_false_without_spawning(monkeypat
     """P1-07: opt-in channel off → clear message, no ssh process."""
     monkeypatch.setattr(settings, "community_scripts_enabled", False)
 
-    async def must_not_run(node, remote_cmd, timeout):
+    async def must_not_run(node, remote_cmd, timeout):  # noqa: ASYNC109
         raise AssertionError("ssh must not be spawned when the channel is disabled")
 
     monkeypatch.setattr(preflight, "_run_ssh_probe", must_not_run)
