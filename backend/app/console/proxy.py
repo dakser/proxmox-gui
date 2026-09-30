@@ -115,7 +115,7 @@ def _pinned_connection_class(fingerprint: str) -> type[ClientConnection]:
     pin = _normalise_fingerprint(fingerprint)
 
     class _PinnedConnection(ClientConnection):
-        def connection_made(self, transport):  # type: ignore[no-untyped-def]
+        def connection_made(self, transport):
             ssl_obj = transport.get_extra_info("ssl_object")
             der = ssl_obj.getpeercert(binary_form=True) if ssl_obj is not None else None
             if not der or hashlib.sha256(der).hexdigest() != pin:
@@ -126,7 +126,7 @@ def _pinned_connection_class(fingerprint: str) -> type[ClientConnection]:
     return _PinnedConnection
 
 
-def _upstream_connect_kwargs(connector) -> dict:  # type: ignore[no-untyped-def]
+def _upstream_connect_kwargs(connector) -> dict:
     """SSL posture for the upstream leg, mirroring the REST connector: pinned when a fingerprint is
     stored and CA validation is off, verifying when ``verify_ssl``, otherwise unverified (TOFU absent)."""
     kwargs: dict = {"ssl": _upstream_ssl_context(verify_ssl=connector.verify_ssl)}

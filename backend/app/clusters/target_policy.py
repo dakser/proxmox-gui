@@ -103,7 +103,7 @@ async def check_target(host: str, port: int) -> None:
         return
     for _fam, _type, _proto, _canon, sockaddr in infos:
         try:
-            ip = ipaddress.ip_address(sockaddr[0].split("%")[0])
+            ip = ipaddress.ip_address(str(sockaddr[0]).split("%")[0])
         except ValueError:
             continue
         if _ip_forbidden(ip):

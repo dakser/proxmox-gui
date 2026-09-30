@@ -23,11 +23,10 @@ Handshake:
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from urllib.parse import urlsplit
 
 from app.config import settings
 from app.core.db import get_db

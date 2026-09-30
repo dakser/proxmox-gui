@@ -96,7 +96,7 @@ async def jobs_get(
     team_ids = await _team_ids_for_user(db, user_id=principal.user.id)
     # Don't-leak-existence: an out-of-team job answers with the same 404 as a
     # genuinely missing job (Plan 01-05 cross-user-404 convention).
-    if not _job_visible(job, principal, team_ids):
+    if job is None or not _job_visible(job, principal, team_ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )
@@ -119,7 +119,7 @@ async def jobs_retry(
 ) -> JobResponse:
     job = await service.get_job(db, job_id)
     team_ids = await _team_ids_for_user(db, user_id=principal.user.id)
-    if not _job_visible(job, principal, team_ids):
+    if job is None or not _job_visible(job, principal, team_ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )

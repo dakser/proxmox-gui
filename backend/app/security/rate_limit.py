@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _get_client() -> object | None:
 
         from app.config import settings
 
-        common = {"db": 0, "socket_connect_timeout": 1, "socket_timeout": 1, "decode_responses": True}
+        common: dict[str, Any] = {"db": 0, "socket_connect_timeout": 1, "socket_timeout": 1, "decode_responses": True}
         if settings.redis_socket:  # production: Redis has no TCP port (D7), only the unix socket
             client = redis.Redis(unix_socket_path=settings.redis_socket, **common)
         else:
