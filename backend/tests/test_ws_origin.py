@@ -81,3 +81,36 @@ def test_allowed_origins_setting_admits_a_listed_origin(session_factory, monkeyp
     assert origin_allowed(WS("https://other.example.org", "10.0.0.5")) is False
     assert origin_allowed(WS("https://10.0.0.5", "10.0.0.5")) is True   # same host, scheme-agnostic
     assert origin_allowed(WS(None, "10.0.0.5")) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["https://evil.example", None])
+async def test_a_valid_session_cookie_does_not_authenticate_a_cross_site_socket(client, session_factory, origin):
+    """The real CSWSH scenario: the victim's browser attaches the session cookie to a socket opened by another
+    site. With a valid cookie the ONLY thing that can reject it is the Origin check."""
+    import anyio
+
+    from app.core.db import get_db
+    from app.main import create_app
+    from tests.factories import login_as, make_user
+
+    await make_user(session_factory, username="cswsh", is_admin=False)
+    cookies = await login_as(client, username="cswsh", password="testpass12345")
+    app = create_app()
+
+    async def override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    def attempt(headers):
+        with TestClient(app, cookies=cookies) as tc:
+            try:
+                with tc.websocket_connect("/api/v1/ws/jobs", headers=headers) as ws:
+                    return ws.receive_json()["type"]
+            except WebSocketDisconnect as exc:
+                return exc.code
+
+    assert await anyio.to_thread.run_sync(attempt, {"origin": origin} if origin else {}) == 1008
+    assert await anyio.to_thread.run_sync(attempt, {"origin": "http://testserver"}) == "backfill"
