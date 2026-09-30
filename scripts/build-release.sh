@@ -5,13 +5,16 @@
 #
 # Output (all unsigned; signing is done locally with scripts/release-sign.sh, D3):
 #   proxmox-gui-<tag>.tar.gz   flat layout: backend/ frontend/ deploy/ VERSION  (no top directory)
-#   SHA256SUMS                 sha256 of the tarball (the file that gets signed)
+#   install.sh                 the installer (its own copy of the signer key is embedded)
+#   SHA256SUMS                 sha256 of the tarball and install.sh (the file that gets signed)
 #   sbom-backend.cdx.json, sbom-frontend.cdx.json   CycloneDX SBOMs (when the tools are available)
 #
-# The tarball is deterministic (sorted names, mtime 0, owner 0, gzip -n) and contains only regular
+# The PACKING is deterministic (sorted names, mtime 0, owner 0, gzip -n); the Vite build is not (chunk
+# hashes differ between runs), so two builds of the same commit differ — integrity comes from signing the
+# published artifact, not from rebuilding it. The tarball contains only regular
 # files and directories (the updater refuses anything else). The frontend is compiled here from
 # frontend/src with the frozen lockfile; production node_modules are installed hoisted (no symlinks,
-# no lifecycle scripts) so `node frontend/build/index.js` runs without a network or a package manager.
+# no lifecycle scripts; pnpm hardlinks its store, so the archive is written with --hard-dereference) so `node frontend/build/index.js` runs without a network or a package manager.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO_ROOT="$PWD"
@@ -60,9 +63,12 @@ chmod -R u=rwX,go=rX "$STAGE"
 
 echo "==> Packing (deterministic)..."
 NAME="proxmox-gui-${TAG}.tar.gz"
-(cd "$STAGE" && tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf - backend deploy frontend VERSION) \
+(cd "$STAGE" && tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --hard-dereference -cf - backend deploy frontend VERSION) \
     | gzip -n -9 >"$OUT/$NAME"
-(cd "$OUT" && sha256sum "$NAME" >SHA256SUMS)
+# install.sh is published next to the tarball and covered by the SAME signed SHA256SUMS, so a user can
+# verify the installer they downloaded (docs: deploy/README.md) before running it.
+cp deploy/install.sh "$OUT/install.sh"
+(cd "$OUT" && sha256sum "$NAME" install.sh >SHA256SUMS)
 
 echo "==> SBOMs..."
 if command -v cyclonedx-py >/dev/null 2>&1; then

@@ -1,0 +1,84 @@
+name: release
+
+# Push a tag vX.Y.Z -> build the release tarball in CI and upload a DRAFT release.
+# Nothing is signed here (D3): the owner downloads SHA256SUMS, signs it locally with
+# scripts/release-sign.sh (ssh-keygen -Y sign, key never leaves the owner's machine) and then
+# publishes the draft. install.sh refuses anything not signed by the key embedded in it.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Validate tag and signer configuration
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ && "$TAG" != *..* ]] || { echo "bad tag $TAG"; exit 1; }
+          if grep -q 'REEMPLAZAR-CON-TU-CLAVE-PUBLICA' deploy/release-signers; then
+            echo "deploy/release-signers still has the placeholder key; a release built now could not be installed"; exit 1
+          fi
+          if grep -q 'TODO-PIN' deploy/pins.env; then echo "deploy/pins.env has TODO-PIN"; exit 1; fi
+          scripts/sync-signers.sh --check
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: Tools
+        run: pip install uv cyclonedx-bom
+      - name: requirements.lock is current
+        run: scripts/update-lock.sh --check
+      - name: Build release artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/build-release.sh "$TAG" dist
+      - name: Self-check the tarball with the updater's own validator
+        run: |
+          python - <<'PY'
+          import glob, re
+          src = open("deploy/host-lxc/proxmox-gui-updater").read()
+          code = re.search(r"PYHELPER='\n(.*?)\n'\n", src, re.S).group(1)
+          open("/tmp/pyhelper.py", "w").write(code)
+          PY
+          python /tmp/pyhelper.py validate dist/proxmox-gui-*.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+
+  draft-release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist
+          path: dist
+      - name: Create the DRAFT release (unsigned)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release create "$TAG" --repo "$REPO" --draft --verify-tag \
+            --title "$TAG" \
+            --notes "DRAFT — not installable until SHA256SUMS.sig is uploaded. Sign locally with scripts/release-sign.sh $TAG, then publish." \
+            dist/*
