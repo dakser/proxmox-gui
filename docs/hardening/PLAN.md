@@ -178,7 +178,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   API; si rompe, documentar y quitar). Frontend: igual salvo `MemoryDenyWriteExecute`, sin `AF_UNIX` innecesario, sin escritura.
   Ejecutar `systemd-analyze security <unidad>` en el contenedor de pruebas (si hay docker con systemd) y registrar la puntuación.
   *Aceptación:* servicios arrancan (P7-02); puntuación anotada en `LOG.md`.
-- [ ] **P3-10 Caddy.** Renderizar el Caddyfile al arrancar con la IP vigente (unidad oneshot `proxmox-gui-caddy-render.service` antes de
+- [x] **P3-10 Caddy.** Renderizar el Caddyfile al arrancar con la IP vigente (unidad oneshot `proxmox-gui-caddy-render.service` antes de
   `caddy`), o usar `--fqdn`. Cabeceras: mantener las existentes; retirar `'unsafe-inline'` de `script-src` si SvelteKit lo permite con
   hash/nonce (`kit.csp` en `svelte.config.js`), si no, documentar por qué. `request_body { max_size }` razonable, límites de
   timeout, y bloquear `/api/docs` y `/api/openapi.json` si D11 no lo cubre en la app.

@@ -69,6 +69,14 @@ assert_contains "$t" "max_size" "body size limit value"
 assert_contains "$t" "read_header" "slow-client timeouts"
 assert_contains "$t" "Strict-Transport-Security" "HSTS kept"
 assert_contains "$t" "X-Content-Type-Options" "nosniff kept"
-assert_contains "$t" "frame-ancestors 'self'" "clickjacking CSP kept"
+assert_contains "$t" "X-Frame-Options" "X-Frame-Options kept"
+# The UI CSP comes from SvelteKit (nonce/hash); Caddy must not overwrite it with an unsafe-inline one.
+assert_not_contains "$(grep -v '^[[:space:]]*#' "$DEPLOY_DIR/caddy/Caddyfile.template" | grep -i "script-src")" "unsafe-inline" "no unsafe-inline script-src in Caddy"
+assert_eq "1" "$(grep -v '^[[:space:]]*#' "$DEPLOY_DIR/caddy/Caddyfile.template" | grep -c 'Content-Security-Policy')" "only the API-scoped CSP is set by Caddy"
+assert_contains "$(grep -A2 'handle /api/\*' "$DEPLOY_DIR/caddy/Caddyfile.template")" "default-src 'none'" "API CSP is scoped to /api/*"
+fe="$(cat "$REPO_DIR/frontend/svelte.config.js")"
+assert_contains "$fe" "mode: 'auto'" "SvelteKit emits the CSP (nonce/hash)"
+assert_not_contains "$(sed -n "/'script-src'/p" "$REPO_DIR/frontend/svelte.config.js")" "unsafe-inline" "script-src has no unsafe-inline in kit.csp"
+assert_contains "$(cat "$REPO_DIR/frontend/src/app.html")" 'nonce="%sveltekit.nonce%"' "inline theme script carries the nonce"
 
 finish
