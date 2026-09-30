@@ -51,13 +51,9 @@ node_modules/
 .svelte-kit/
 dist/
 
-# Build outputs:
-#  - generic `build/` ignored (test fixtures, scratch builds)
-#  - frontend/build/ EXPLICITLY tracked: committed adapter-node artefact
-#    so the install LXC never runs pnpm/vite (Plan 01-04 follow-up)
+# Build outputs. frontend/build is NOT versioned any more (P6-01, F-10): the release workflow compiles it
+# in CI from frontend/src + the pnpm lockfile and ships it inside the signed tarball.
 build/
-!frontend/build/
-!frontend/build/**
 
 # Fleet peer-comms: offline letters + archived briefs are transient, not repo artefacts
 .planning/inbox/

@@ -242,7 +242,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 
 ## P6 — Cadena de suministro y pipeline de release (F-04, F-10)
 
-- [ ] **P6-01 Frontend fuera del árbol.** `git rm -r --cached frontend/build`, añadir a `.gitignore`, ajustar `README`/docs. El build se hace en CI.
+- [x] **P6-01 Frontend fuera del árbol.** `git rm -r --cached frontend/build`, añadir a `.gitignore`, ajustar `README`/docs. El build se hace en CI.
   (El historial conserva el binario; documentarlo. No reescribir historia sin que el dueño lo pida.)
 - [ ] **P6-02 Workflow de release.** `.github/workflows/release.yml` al empujar un tag `v*`: instalar Node 22 + pnpm (`--frozen-lockfile`),
   compilar, ensamblar el tarball determinista (`--sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner`) con `backend/`, `frontend/build`,

@@ -132,12 +132,12 @@ pnpm install
 pnpm dev           # dev server (proxies /api → backend on :8000)
 pnpm test -- --run # vitest suite
 pnpm exec svelte-check --threshold error
-pnpm run build     # production build (adapter-node) — commit the build/ artifact
+pnpm run build     # production build (adapter-node) into frontend/build (git-ignored)
 ```
 
-> Note: `frontend/build/` is a committed artifact. `pnpm run build` wipes the
-> git-tracked `frontend/build/node_modules`; restore it with
-> `git checkout -- frontend/build/node_modules` before `git add -fA frontend/build`.
+> Note: `frontend/build/` is **not** versioned. Release tarballs are built in CI from `frontend/src` and the
+> pnpm lockfile (`.github/workflows/release.yml`), so the JavaScript that runs can be traced to the source.
+> (Git history before this change still contains the old binary build; it was not rewritten.)
 
 Per-subsystem READMEs (backend, frontend, deploy) drill into specifics.
 
