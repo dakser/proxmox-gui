@@ -18,6 +18,10 @@ PrivateTmp=true
 ProtectHome=true
 ReadWritePaths=/etc/caddy
 ProtectSystem=strict
+# /run/proxmox-gui receives site.env (the API's Host allow-list); kept after the oneshot exits.
+RuntimeDirectory=proxmox-gui
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target

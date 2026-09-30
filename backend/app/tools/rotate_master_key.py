@@ -59,7 +59,7 @@ def rotate(db_path: Path, old_key: Path, new_key: Path) -> dict[str, int]:
         counts: dict[str, int] = {}
         for table, column in encrypted_columns():
             try:
-                rows = con.execute(f'SELECT rowid, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL').fetchall()  # noqa: S608 — identifiers come from the ORM metadata
+                rows = con.execute(f'SELECT rowid, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL').fetchall()  # noqa: S608  # nosec B608
             except sqlite3.OperationalError:
                 continue  # table not present in this database
             for rowid, blob in rows:
@@ -72,7 +72,7 @@ def rotate(db_path: Path, old_key: Path, new_key: Path) -> dict[str, int]:
                 plan.append((table, column, rowid, new.encrypt(plain)))
             counts[f"{table}.{column}"] = len(rows)
         for table, column, rowid, blob in plan:
-            con.execute(f'UPDATE "{table}" SET "{column}" = ? WHERE rowid = ?', (blob, rowid))  # noqa: S608
+            con.execute(f'UPDATE "{table}" SET "{column}" = ? WHERE rowid = ?', (blob, rowid))  # noqa: S608  # nosec B608
         con.execute("COMMIT")
         return {k: v for k, v in counts.items() if v}
     except BaseException:

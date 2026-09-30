@@ -100,7 +100,10 @@ if ! docker exec -e PGUI_RELEASE_TAG="$TAG" -e PGUI_SRC_DIR=/root/pgui-src \
         -e PGUI_REPO_URL=https://github.com/dakser/proxmox-gui -e PGUI_SIGNERS_FILE=/root/pgui-allowed-signers \
         "$NAME" bash /root/pgui-src/deploy/lxc/bootstrap.sh >"$LOGS/bootstrap.log" 2>&1; then
     tail -30 "$LOGS/bootstrap.log"; echo "bootstrap failed" >&2
-    ct 'journalctl --no-pager -n 60' >"$LOGS/journal-after-bootstrap-failure.log" 2>&1 || true
+    ct 'journalctl --no-pager -n 80' >"$LOGS/journal-after-bootstrap-failure.log" 2>&1 || true
+    # print the interesting bits so they are visible in the CI log without downloading the artifact
+    # shellcheck disable=SC2016  # the command is meant to be expanded inside the container, not here
+    ct 'systemctl --failed --no-pager; for u in $(systemctl --failed --plain --no-legend | awk "{print \$1}"); do echo "--- $u"; journalctl -u "$u" --no-pager -n 25; done' 2>&1 | tail -80
     exit 1
 fi
 tail -5 "$LOGS/bootstrap.log"

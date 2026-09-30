@@ -37,10 +37,11 @@ for bad in "" "owner" "a/b/c" "a b/c" 'o/r;id' 'o/$(id)' "../x" "o/r.git" 'o/r"x
 done
 
 test_case "acceptance: no executable reference to the upstream author's repository in this repo"
-hits="$(cd "$REPO_DIR" && grep -rIn "chloepriceless" --include='*.sh' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.conf' \
+cd "$REPO_DIR"
+hits="$(grep -rIn "chloepriceless" --include='*.sh' --include='*.py' --include='*.yml' --include='*.yaml' --include='*.conf' \
         --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.planning --exclude-dir=tests . || true)"
 assert_eq "" "$hits" "grep -rn chloepriceless (executable file types)"
-assert_eq "" "$(cd "$REPO_DIR" && grep -rn "chloepriceless" deploy/install.sh deploy/lxc deploy/host-lxc deploy/systemd scripts || true)" "installer, bootstrap, updater, units"
-assert_eq "" "$(cd "$REPO_DIR" && grep -rn "chloepriceless" backend/app || true)" "backend code"
+assert_eq "" "$(grep -rn "chloepriceless" deploy/install.sh deploy/lxc deploy/host-lxc deploy/systemd scripts || true)" "installer, bootstrap, updater, units"
+assert_eq "" "$(grep -rn "chloepriceless" backend/app || true)" "backend code"
 
 finish
