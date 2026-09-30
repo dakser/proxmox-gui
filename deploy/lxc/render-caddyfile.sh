@@ -44,6 +44,15 @@ else
     SITE="https://${ADDR}:443"
 fi
 
+# Host allow-list for the API (TrustedHostMiddleware): the name/IP Caddy serves plus loopback.
+# Written for the API/worker units (EnvironmentFile) to a root-owned runtime file.
+if [[ -n "$PGUI_FQDN" ]]; then HOSTS="\"${PGUI_FQDN}\""; else HOSTS="\"${ADDR}\""; fi
+RUNDIR="${ROOT}/run/proxmox-gui"
+mkdir -p "$RUNDIR"
+chmod 0755 "$RUNDIR"
+printf 'PROXMOX_GUI_ALLOWED_HOSTS=[%s,"localhost","127.0.0.1"]\n' "$HOSTS" >"${RUNDIR}/site.env.new"
+chmod 0644 "${RUNDIR}/site.env.new"
+
 mkdir -p "$(dirname "$OUT")"
 tmp="$(mktemp "${OUT}.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
@@ -55,5 +64,6 @@ if command -v caddy >/dev/null 2>&1; then
 fi
 chmod 0644 "$tmp"
 mv -f "$tmp" "$OUT"
+mv -f "${RUNDIR}/site.env.new" "${RUNDIR}/site.env"
 trap - EXIT
 echo "Rendered $OUT for ${SITE}"

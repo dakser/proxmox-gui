@@ -182,14 +182,19 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Proxmox Self-Service GUI",
         version=__version__,
-        openapi_url="/api/openapi.json",
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
+        # D11: the interactive docs and the schema are an attack-surface map; only on request.
+        openapi_url="/api/openapi.json" if settings.enable_docs else None,
+        docs_url="/api/docs" if settings.enable_docs else None,
+        redoc_url="/api/redoc" if settings.enable_docs else None,
         lifespan=lifespan,
     )
 
-    # TODO(Plan 06+): TrustedHostMiddleware once we know the deployed hostname
-    # (Caddy upstream-only). Not active in dev.
+    # Host-header allow-list (P5-04). In the LXC, proxmox-gui-caddy-render writes the current
+    # IP/FQDN into PROXMOX_GUI_ALLOWED_HOSTS; empty (dev/tests) = not enforced.
+    if settings.allowed_hosts:
+        from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     @app.get("/api/v1/health", tags=["health"], summary="Liveness probe")
     async def health() -> dict[str, str]:

@@ -87,10 +87,13 @@ __SITE_ADDR__ {
 		reverse_proxy 127.0.0.1:8000 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
 			flush_interval -1
 		}
 	}
 
+	# X-Forwarded-For is SET (not appended) to the real peer on every upstream: a client-supplied
+	# value can never reach the API's source-IP logic (P5-04). The API trusts the header only from loopback.
 	# FastAPI (REST + WebSocket in later phases).
 	# Caddy automatically sets X-Forwarded-For + X-Forwarded-Proto on the
 	# upstream request; we only need to add X-Real-IP explicitly.
@@ -99,6 +102,7 @@ __SITE_ADDR__ {
 		reverse_proxy 127.0.0.1:8000 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
 		}
 	}
 
@@ -107,6 +111,7 @@ __SITE_ADDR__ {
 		reverse_proxy 127.0.0.1:3000 {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
 		}
 	}
 }

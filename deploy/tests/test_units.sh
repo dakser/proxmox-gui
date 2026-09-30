@@ -27,6 +27,10 @@ for unit in proxmox-gui-api.service proxmox-gui-worker.service; do
     check_lacks "$unit" "ExecStartPre=.*"
 done
 
+test_case "API unit reads the rendered host allow-list and starts after the renderer"
+check_has proxmox-gui-api.service "EnvironmentFile=-/run/proxmox-gui/site.env"
+check_has proxmox-gui-api.service "After=network-online.target redis-server.service proxmox-gui-caddy-render.service"
+
 test_case "frontend unit: separate user, no secrets, no Redis, JIT allowed"
 f=proxmox-gui-frontend.service
 check_has "$f" "User=proxmox-gui-web"

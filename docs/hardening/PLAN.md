@@ -224,9 +224,9 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
 - [x] **P5-02 Redis/arq.** Configurar `RedisSettings` según P3-08 y fijar `job_serializer`/`job_deserializer` JSON tanto al encolar
   (`main.py`) como en `WorkerSettings`. Comprobar que ningún argumento encolado necesita pickle (fechas, bytes, modelos) y adaptarlo.
   *Aceptación:* `test_jobs_infrastructure.py` verde + test de ida y vuelta JSON.
-- [ ] **P5-03 Origin en WebSockets.** Validar `Origin` contra una lista (`Settings.allowed_origins`, por defecto el host de la petición)
+- [x] **P5-03 Origin en WebSockets.** Validar `Origin` contra una lista (`Settings.allowed_origins`, por defecto el host de la petición)
   en `/api/v1/ws/jobs` y `/api/v1/ws/console/...`; cerrar con 1008 si no coincide. Tests: sin Origin, Origin ajeno, Origin correcto.
-- [ ] **P5-04 Superficie HTTP.** Desactivar `/api/docs`, `/api/redoc`, `/api/openapi.json` salvo `PROXMOX_GUI_ENABLE_DOCS=true` (D11);
+- [x] **P5-04 Superficie HTTP.** Desactivar `/api/docs`, `/api/redoc`, `/api/openapi.json` salvo `PROXMOX_GUI_ENABLE_DOCS=true` (D11);
   activar `TrustedHostMiddleware` con hosts configurables (IP/FQDN del LXC); revisar cabeceras y que `X-Forwarded-*` solo se acepte desde
   el proxy local (ya existe en `core/source_ip.py`; añadir test si falta).
 - [ ] **P5-05 TLS de consola.** Confirmar en `console/proxy.py` si con `verify_ssl=False` se aplica el fingerprint guardado; si no, aplicarlo

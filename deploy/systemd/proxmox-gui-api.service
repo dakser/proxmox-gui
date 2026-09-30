@@ -7,8 +7,8 @@
 
 [Unit]
 Description=Proxmox GUI API (FastAPI)
-After=network-online.target redis-server.service
-Wants=network-online.target
+After=network-online.target redis-server.service proxmox-gui-caddy-render.service
+Wants=network-online.target proxmox-gui-caddy-render.service
 Requires=redis-server.service
 
 [Service]
@@ -27,6 +27,8 @@ Environment=PROXMOX_GUI_COOKIE_SECURE=true
 Environment=PROXMOX_GUI_LOG_LEVEL=INFO
 # Written by install.sh --enable-community-scripts (root:proxmox-gui 0440); absent = disabled.
 EnvironmentFile=-/etc/proxmox-gui/gui.env
+# Current IP/FQDN allow-list, rendered as root at boot by proxmox-gui-caddy-render (Host header check).
+EnvironmentFile=-/run/proxmox-gui/site.env
 ExecStart=/opt/proxmox-gui/current/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
 Restart=on-failure
 RestartSec=5

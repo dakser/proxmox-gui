@@ -26,6 +26,23 @@ assert_contains "$(cat "$OUTF")" "https://192.168.1.77:443 {" "new IP rendered"
 assert_not_contains "$(cat "$OUTF")" "10.0.0.5" "old IP gone"
 assert_mode "$OUTF" 644
 
+test_case "the API host allow-list follows the current address (P5-04)"
+setup_tree
+RIP=10.0.0.5 render
+assert_eq 'PROXMOX_GUI_ALLOWED_HOSTS=["10.0.0.5","localhost","127.0.0.1"]' "$(cat "$PGUI_ROOT/run/proxmox-gui/site.env")" "IP + loopback only"
+RIP=192.168.1.77 render
+assert_eq 'PROXMOX_GUI_ALLOWED_HOSTS=["192.168.1.77","localhost","127.0.0.1"]' "$(cat "$PGUI_ROOT/run/proxmox-gui/site.env")" "regenerated with the new IP"
+python3 -c "import json,sys; [json.loads(l.split('=',1)[1]) for l in open(sys.argv[1])]" "$PGUI_ROOT/run/proxmox-gui/site.env" && _ok=1 || _ok=0
+assert_eq 1 "$_ok" "value is valid JSON (pydantic list)"
+echo "PGUI_FQDN=gui.example.org" >"$PGUI_ROOT/etc/proxmox-gui/site.env"
+RIP=10.0.0.5 render
+assert_eq 'PROXMOX_GUI_ALLOWED_HOSTS=["gui.example.org","localhost","127.0.0.1"]' "$(cat "$PGUI_ROOT/run/proxmox-gui/site.env")" "FQDN mode"
+rm -f "$PGUI_ROOT/run/proxmox-gui/site.env" "$PGUI_ROOT/etc/proxmox-gui/site.env"; shim_handler caddy <<'H'
+    return 1
+H
+RIP=10.0.0.9 render
+assert_rc_nonzero "failed validation"; assert_no_file "$PGUI_ROOT/run/proxmox-gui/site.env" "allow-list not published when the Caddyfile was rejected"
+
 test_case "FQDN from site.env wins over the IP"
 setup_tree
 echo "PGUI_FQDN=gui.example.org" >"$PGUI_ROOT/etc/proxmox-gui/site.env"
@@ -70,6 +87,7 @@ assert_contains "$t" "read_header" "slow-client timeouts"
 assert_contains "$t" "Strict-Transport-Security" "HSTS kept"
 assert_contains "$t" "X-Content-Type-Options" "nosniff kept"
 assert_contains "$t" "X-Frame-Options" "X-Frame-Options kept"
+assert_eq "3" "$(grep -c 'header_up X-Forwarded-For {remote_host}' "$DEPLOY_DIR/caddy/Caddyfile.template")" "XFF is SET to the real peer on every upstream"
 # The UI CSP comes from SvelteKit (nonce/hash); Caddy must not overwrite it with an unsafe-inline one.
 assert_not_contains "$(grep -v '^[[:space:]]*#' "$DEPLOY_DIR/caddy/Caddyfile.template" | grep -i "script-src")" "unsafe-inline" "no unsafe-inline script-src in Caddy"
 assert_eq "1" "$(grep -v '^[[:space:]]*#' "$DEPLOY_DIR/caddy/Caddyfile.template" | grep -c 'Content-Security-Policy')" "only the API-scoped CSP is set by Caddy"
