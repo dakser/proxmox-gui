@@ -268,10 +268,10 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   (`--privileged --cgroupns=host`), ejecutar `bootstrap.sh` con un tarball de release local de prueba, comprobar que arrancan `caddy`, `redis`,
   API, worker y frontend, que `GET https://127.0.0.1/api/v1/health` responde, que `/setup` exige token y que `systemd-analyze security` no empeora.
   Si no hay docker, dejar el script `deploy/tests/smoke-systemd.sh` listo y anotarlo en `HUMAN-TODO.md`. Esta prueba no sustituye a un PVE real.
-- [ ] **P7-03 Pruebas negativas de seguridad.** Un test por hallazgo F-01…F-13 que falle contra el commit base y pase ahora (o justificar por qué no es
+- [x] **P7-03 Pruebas negativas de seguridad.** Un test por hallazgo F-01…F-13 que falle contra el commit base y pase ahora (o justificar por qué no es
   testeable automáticamente). Tabla hallazgo → test → commit en el informe.
-- [ ] **P7-04 Escaneos finales.** Repetir P0-03; comparar con la línea base; ningún hallazgo nuevo de severidad ≥ media sin decisión registrada.
-- [ ] **P7-05 Lista de validación en laboratorio.** `docs/hardening/LAB-CHECKLIST.md`: pasos para un PVE anidado o nodo de pruebas (instalar sin y con
+- [x] **P7-04 Escaneos finales.** Repetir P0-03; comparar con la línea base; ningún hallazgo nuevo de severidad ≥ media sin decisión registrada.
+- [x] **P7-05 Lista de validación en laboratorio.** `docs/hardening/LAB-CHECKLIST.md`: pasos para un PVE anidado o nodo de pruebas (instalar sin y con
   `--enable-community-scripts`, crear el primer admin con token, registrar un clúster, VM/LXC, consola, backup/restore, release N → N+1 y
   rollback forzado, desinstalar y comprobar `authorized_keys`), con el resultado esperado de cada paso.
 - [ ] **P7-06 Informe final.** `docs/hardening/HARDENING-REPORT.md` con la plantilla de `AUTONOMY.md`.
