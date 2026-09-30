@@ -83,34 +83,31 @@ axe-core half passes).
 - Manual accessibility audit — keyboard / screen-reader / contrast (the
   automated axe-core audit already passes)
 
-## Install (one-liner)
+## Install
 
 ### Prerequisites
 
 - **Proxmox VE 8.x host** with `pct` + `pvesh` available
 - **Debian 12 LXC template** (installer downloads it if missing)
-- **Outbound internet** from the host to:
-  `github.com`, `deb.debian.org`, `astral.sh`, `registry.npmjs.org`, `pypi.org`
+- **Outbound internet** from the host and the LXC to `github.com`, `deb.debian.org`, `pypi.org`, `nodejs.org`
 - **IPv4 connectivity** — IPv6 is not required
 - **Min. 8 GB disk + 2 GB RAM** for the LXC (defaults; tunable)
-- **~5 min** typical install time
+- **A signed release** of your fork (the installer refuses branches, `latest` and unsigned releases)
 
-Run **on the Proxmox VE 8.x host** (NOT inside an existing LXC):
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
-```
-
-The installer creates a fresh unprivileged LXC, drops in a service user,
-materialises secrets, applies migrations, and starts Caddy + the API.
-Then open `https://<lxc-ip>/setup` to run the first-run wizard.
-
-Tune resources via env or flags (full list in [`deploy/README.md`](./deploy/README.md)):
+Do **not** pipe the installer into a shell. Download `install.sh` and the release's `SHA256SUMS` / `SHA256SUMS.sig`, verify the
+signature with your public key, check `install.sh` against `SHA256SUMS`, read it, then run it **on the Proxmox VE 8.x host**:
 
 ```bash
-CPU=4 RAM_MB=4096 DISK_GB=20 STORAGE=local-zfs \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/dakser/proxmox-gui/master/deploy/install.sh)"
+bash install.sh --release v0.7.0          # see deploy/README.md for the exact verification commands
 ```
+
+The installer verifies the release (signature + SHA-256) on the host before creating anything, builds an unprivileged LXC
+with separate service users, hash-locked dependencies and hardened systemd units, and prints the setup URL plus the command
+that reads the one-time **setup token** the first-run wizard needs. Updates (UI or `install.sh --update`) are applied by a
+root-owned updater that only accepts newer, signed releases and rolls back on failure.
+
+Full flow, flags, the optional community-scripts SSH channel (off by default), threat model, secret rotation and
+uninstall: [`deploy/README.md`](./deploy/README.md). Security findings and their fixes: [`docs/hardening/`](./docs/hardening/).
 
 ## Local dev
 
