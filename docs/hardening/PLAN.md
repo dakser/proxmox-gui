@@ -159,11 +159,11 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   `/var/lib/proxmox-gui`; actualizar `proxmox-gui-frontend.service`. Directorios accesibles por camino, no por grupo compartido.
 - [ ] **P3-04 Sin sudo.** Eliminar el sudoers y toda referencia a `sudo -n systemctl` (se reemplaza en P4). Quitar la dependencia de
   `visudo`.
-- [ ] **P3-05 Toolchain fijado.** Crear `deploy/pins.env` con URL + SHA-256 de: tarball de Node 22 LTS (linux-x64) y Python 3.12
+- [x] **P3-05 Toolchain fijado.** Crear `deploy/pins.env` con URL + SHA-256 de: tarball de Node 22 LTS (linux-x64) y Python 3.12
   standalone (o `uv` con su hash). `bootstrap.sh` descarga a archivo, verifica con `sha256sum -c` y solo entonces instala; se
   eliminan `curl | sh`, `nodejs npm` de apt y `pip install --upgrade pip setuptools wheel`. Si no hay red para calcular los hashes,
   dejar `TODO-PIN` que **hace fallar** `scripts/check.sh` y crear `scripts/update-pins.sh` para calcularlos; anotar en `HUMAN-TODO.md`.
-- [ ] **P3-06 Dependencias con hashes.** Generar `backend/requirements.lock` con `uv pip compile --generate-hashes` (fuente:
+- [x] **P3-06 Dependencias con hashes.** Generar `backend/requirements.lock` con `uv pip compile --generate-hashes` (fuente:
   `pyproject.toml`), instalar con `pip install --require-hashes --only-binary=:all: -r requirements.lock`. CI verifica que el
   lockfile no está desactualizado.
 - [ ] **P3-07 Token de setup.** El bootstrap genera `/etc/proxmox-gui/setup-token` (`root:proxmox-gui` 0440, 32 bytes aleatorios en

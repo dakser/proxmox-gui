@@ -47,6 +47,9 @@ if [[ -f deploy/pins.env ]] && grep -q 'TODO-PIN' deploy/pins.env; then
     placeholder_fail "deploy/pins.env has TODO-PIN entries; run scripts/update-pins.sh"
 fi
 
+step "backend/requirements.lock is up to date"
+if command -v uv >/dev/null 2>&1; then scripts/update-lock.sh --check; else echo "WARN: uv not installed; lock freshness not checked" >&2; fi
+
 step "ruff (ratchet: <= $RUFF_MAX)"
 (
     cd backend
