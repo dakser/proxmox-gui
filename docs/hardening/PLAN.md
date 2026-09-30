@@ -248,7 +248,7 @@ Cierre: commit(s) `feat(security): restricted SSH gate for community-scripts (op
   compilar, ensamblar el tarball determinista (`--sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner`) con `backend/`, `frontend/build`,
   `deploy/`, `requirements.lock`, `deploy/pins.env`, generar `SHA256SUMS` y SBOM (CycloneDX), y subir todo a un release en borrador.
   Permisos mínimos y acciones fijadas por SHA.
-- [ ] **P6-03 Firma local.** `scripts/release-sign.sh <tag>`: descarga `SHA256SUMS` del borrador, firma con `ssh-keygen -Y sign -n proxmox-gui-release`,
+- [x] **P6-03 Firma local.** `scripts/release-sign.sh <tag>`: descarga `SHA256SUMS` del borrador, firma con `ssh-keygen -Y sign -n proxmox-gui-release`,
   verifica localmente y sube `SHA256SUMS.sig`. `deploy/release-signers` con **marcador** `REEMPLAZAR-CON-TU-CLAVE-PUBLICA` que hace fallar el
   instalador y `scripts/check.sh` hasta que el dueño lo sustituya (HUMAN-TODO).
 - [ ] **P6-04 Parametrizar el fork.** `REPO_URL` por defecto = el `origin` del fork (script `scripts/set-fork.sh <owner/repo>` reescribe los valores
