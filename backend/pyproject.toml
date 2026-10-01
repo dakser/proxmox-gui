@@ -19,7 +19,7 @@ dependencies = [
     "alembic==1.18.4",
     "pwdlib[argon2]==0.3.0",
     "argon2-cffi==25.1.0",
-    "pyjwt==2.14.0",
+    "pyjwt==2.15.1",
     "cryptography==50.0.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
