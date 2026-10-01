@@ -17,7 +17,8 @@ prepare() {  # prepare [placeholder|real]
     [[ -f "$T_TMP/owner_key" ]] || ssh-keygen -t ed25519 -N "" -q -f "$T_TMP/owner_key" -C owner
     [[ -f "$T_TMP/other_key" ]] || ssh-keygen -t ed25519 -N "" -q -f "$T_TMP/other_key" -C other
     if [[ "${1:-real}" == placeholder ]]; then
-        cp "$REPO_DIR/deploy/release-signers" "$T_TMP/repo/deploy/release-signers"
+        # Fixture, not the repo's own file: the real deploy/release-signers holds the owner's key by now.
+        printf 'proxmox-gui-release namespaces="proxmox-gui-release" REEMPLAZAR-CON-TU-CLAVE-PUBLICA\n' >"$T_TMP/repo/deploy/release-signers"
     else
         printf 'proxmox-gui-release namespaces="proxmox-gui-release" %s\n' "$(cut -d' ' -f1,2 "$T_TMP/owner_key.pub")" >"$T_TMP/repo/deploy/release-signers"
         (cd "$T_TMP/repo" && scripts/sync-signers.sh >/dev/null)
