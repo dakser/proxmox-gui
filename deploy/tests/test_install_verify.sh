@@ -86,7 +86,12 @@ expect_abort "missing release"
 
 test_case "placeholder signer refuses to install"
 fresh
-inst --release v0.0.1
+# Use a copy of install.sh with the placeholder embedded: the real one carries the owner's key by now.
+rm -rf "$T_TMP/ph"; mkdir -p "$T_TMP/ph/scripts"
+cp -r "$DEPLOY_DIR" "$T_TMP/ph/deploy"; cp "$DEPLOY_DIR/../scripts/sync-signers.sh" "$T_TMP/ph/scripts/"
+printf 'proxmox-gui-release namespaces="proxmox-gui-release" REEMPLAZAR-CON-TU-CLAVE-PUBLICA\n' >"$T_TMP/ph/deploy/release-signers"
+"$T_TMP/ph/scripts/sync-signers.sh" >/dev/null
+INSTALL="$T_TMP/ph/deploy/install.sh" inst --release v0.0.1
 expect_abort "embedded placeholder key"
 assert_contains "$ERR" "no release signer key configured" "message"
 
