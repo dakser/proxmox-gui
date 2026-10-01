@@ -54,7 +54,7 @@ def _validate_commit_sha(value: str) -> str:
     interpolated into a GitHub raw URL and a shell command; an unvalidated
     value is a supply-chain / shell-injection surface.
     """
-    if not isinstance(value, str) or not _COMMIT_SHA_RE.match(value):
+    if not isinstance(value, str) or not _COMMIT_SHA_RE.fullmatch(value):
         raise ValueError(
             "Invalid community-script commit hash — expected a 40-character "
             "lowercase hex commit SHA."
@@ -68,7 +68,7 @@ def _validate_slug(value: str) -> str:
     The slug is interpolated into install/{slug}-install.sh and a bash -c
     string — an unsafe charset is a path-traversal / shell-injection surface.
     """
-    if not isinstance(value, str) or not _SLUG_RE.match(value):
+    if not isinstance(value, str) or not _SLUG_RE.fullmatch(value):
         raise ValueError(
             "Invalid community-script slug — expected lowercase letters, "
             "digits and hyphens only."

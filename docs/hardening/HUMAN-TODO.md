@@ -1,0 +1,9 @@
+# Acciones que solo puede hacer una persona
+
+1. **Clave de firma de releases (D2/D3).** Genera `ssh-keygen -t ed25519 -f ~/.ssh/proxmox-gui-release`, pon la línea pública en `deploy/release-signers` (formato `proxmox-gui-release namespaces="proxmox-gui-release" ssh-ed25519 AAAA…`) y ejecuta `scripts/sync-signers.sh`. Hasta entonces `install.sh` se niega a instalar y `scripts/check.sh` falla (salvo `PGUI_ALLOW_PLACEHOLDERS=1`).
+2. **Fork.** `scripts/set-fork.sh dakser/proxmox-gui` ya está aplicado; verifica con el `grep` de P6-04 (`docs/hardening/PLAN.md`) que no queda ninguna URL del autor original.
+3. **Ajustes de GitHub (no se pueden hacer desde el repo):** activar 2FA en tu cuenta; proteger `main` (PR obligatorio, checks `shell`, `backend`, `frontend`, `scans`, `smoke-systemd` requeridos, sin force-push); activar Dependabot alerts y security updates; en *Settings → Actions → General* poner permisos del `GITHUB_TOKEN` en solo lectura y exigir aprobación para workflows de forks.
+4. **Primera release.** Tras el punto 1: `git tag v0.1.0 && git push origin v0.1.0`; el workflow `release.yml` deja un borrador con tarball, `install.sh` y `SHA256SUMS`; fírmalo con `scripts/release-sign.sh v0.1.0 --publish` (re-comprueba los hashes antes de firmar).
+5. **Validación en laboratorio** con `docs/hardening/LAB-CHECKLIST.md` (PVE anidado, snapshot previo). Es lo único que verifica lo que CI no puede: `pct create` con plantillas, `pct exec` real, MemoryDenyWriteExecute/RestrictAddressFamilies en Node, PrivateDevices en LXC sin privilegios, `from=` con IP real, rollback real.
+6. **Revisar las decisiones marcadas `[REVISAR]`** en `DECISIONS.md` (D1–D12 y X1–X17) y confirmarlas o cambiarlas.
+7. **Dependencias:** 7 avisos de `pnpm audit` en dependencias de desarrollo (vitest/js-yaml; no viajan en la release) y los avisos de Dependabot futuros; `requirements.lock`/`pnpm-lock` se regeneran con `scripts/update-lock.sh` y se revisan a mano.

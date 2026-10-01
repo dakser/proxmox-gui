@@ -1,0 +1,154 @@
+name: ci
+
+on:
+  push:
+    branches: [master, hardening/main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends shellcheck openssh-client sqlite3 perl
+      - name: shellcheck + bash -n
+        run: |
+          mapfile -t files < <(grep -rIl --exclude-dir=node_modules --exclude-dir=.git '^#!/usr/bin/env bash\|^#!/bin/bash' deploy scripts | sort -u)
+          for f in "${files[@]}"; do bash -n "$f"; done
+          shellcheck -x "${files[@]}"
+      - name: gate syntax + signer sync + deploy script tests
+        env:
+          PGUI_ALLOW_PLACEHOLDERS: "1"
+        run: |
+          perl -c deploy/host/proxmox-gui-ssh-gate
+          scripts/sync-signers.sh --check
+          deploy/tests/run.sh
+
+  backend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[mcp]' pytest 'pytest-asyncio==1.3.0' respx mypy 'ruff==0.15.12'
+      - name: requirements.lock is up to date and installs with hashes only
+        run: |
+          pip install uv
+          scripts/update-lock.sh --check
+          python -m venv /tmp/locktest
+          /tmp/locktest/bin/pip install --quiet --require-hashes --only-binary=:all: -r backend/requirements.lock
+          /tmp/locktest/bin/pip install --quiet --no-deps --no-build-isolation --no-index ./backend
+      - name: Lint, types and tests (ratchet vs. docs/hardening/BASELINE.md)
+        working-directory: backend
+        run: |
+          # shellcheck source=../scripts/baseline-counts.env
+          source ../scripts/baseline-counts.env
+          n="$(ruff check . --output-format=concise | grep -cE '^[^ ]+:[0-9]+:[0-9]+:' || true)"
+          echo "ruff errors: $n (max $RUFF_MAX)"; [ "$n" -le "$RUFF_MAX" ]
+          n="$(mypy --config-file mypy.ini app | grep -c ': error:' || true)"
+          echo "mypy errors: $n (max $MYPY_MAX)"; [ "$n" -le "$MYPY_MAX" ]
+          pytest -q
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: Install, check, test, build
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm test
+          pnpm build
+
+  scans:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: gitleaks (pinned release, sha256-verified)
+        run: |
+          v=8.24.3
+          f="gitleaks_${v}_linux_x64.tar.gz"
+          curl -fsSL -o "$f" "https://github.com/gitleaks/gitleaks/releases/download/v${v}/${f}"
+          curl -fsSL -o checksums.txt "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_checksums.txt"
+          grep " ${f}\$" checksums.txt | sha256sum -c -
+          tar xzf "$f" gitleaks
+          ./gitleaks detect --source . --no-banner --redact --config .gitleaks.toml
+      - name: bandit + pip-audit
+        run: |
+          pip install bandit pip-audit uv
+          bandit -q -r backend/app --severity-level medium
+          pip-audit -r backend/requirements.lock --no-deps --disable-pip
+      - name: pnpm audit (production dependencies)
+        working-directory: frontend
+        run: pnpm audit --prod
+
+  smoke-systemd:
+    # Real systemd (Debian 12 container on the runner's Docker daemon), real apt/pip/npm-free install from the
+    # release tarball, real Redis/Caddy/units. "Real environment, no PVE" (P7-02); a real PVE is LAB-CHECKLIST.md.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: Smoke test (builds the release tarball, installs it, checks the stack)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends openssh-client
+          deploy/tests/smoke-systemd.sh --logs smoke-logs
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-systemd-logs
+          path: smoke-logs/
+          if-no-files-found: warn

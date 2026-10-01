@@ -105,12 +105,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.jobs_event_pump_task = None
     try:
         from arq import create_pool
-        from arq.connections import RedisSettings
 
+        from app.jobs import redis_conf
         from app.jobs.events import jobs_event_pump
 
         app.state.arq_pool = await create_pool(
-            RedisSettings(host="127.0.0.1", port=6379, database=0)
+            redis_conf.arq_redis_settings(),
+            job_serializer=redis_conf.job_serializer,
+            job_deserializer=redis_conf.job_deserializer,
         )
         app.state.jobs_event_pump_task = asyncio.create_task(
             jobs_event_pump(app), name="jobs-event-pump"
@@ -180,14 +182,19 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Proxmox Self-Service GUI",
         version=__version__,
-        openapi_url="/api/openapi.json",
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
+        # D11: the interactive docs and the schema are an attack-surface map; only on request.
+        openapi_url="/api/openapi.json" if settings.enable_docs else None,
+        docs_url="/api/docs" if settings.enable_docs else None,
+        redoc_url="/api/redoc" if settings.enable_docs else None,
         lifespan=lifespan,
     )
 
-    # TODO(Plan 06+): TrustedHostMiddleware once we know the deployed hostname
-    # (Caddy upstream-only). Not active in dev.
+    # Host-header allow-list (P5-04). In the LXC, proxmox-gui-caddy-render writes the current
+    # IP/FQDN into PROXMOX_GUI_ALLOWED_HOSTS; empty (dev/tests) = not enforced.
+    if settings.allowed_hosts:
+        from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     @app.get("/api/v1/health", tags=["health"], summary="Liveness probe")
     async def health() -> dict[str, str]:
@@ -222,12 +229,18 @@ def create_app() -> FastAPI:
     async def _bootstrap_failed_handler(
         _: Request, exc: BootstrapFailed,
     ) -> JSONResponse:
+        # The underlying PVE error text is logged, never reflected (F-13): it can carry paths,
+        # internal hostnames or token fragments.
+        logging.getLogger(__name__).error(
+            "tenant bootstrap failed on cluster %r: %r", exc.cluster_name, exc.original
+        )
+        safe_name = "".join(c for c in str(exc.cluster_name)[:128] if c.isprintable())
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "detail": (
-                    f"Tenant bootstrap failed on cluster "
-                    f"{exc.cluster_name!r}: {exc.original}"
+                    f"Tenant bootstrap failed on cluster {safe_name!r}. "
+                    "See the server log for details."
                 ),
             },
         )

@@ -48,6 +48,36 @@ class Settings(BaseSettings):
     # Paths.
     master_key_path: Path = Path("/etc/proxmox-gui/master.key")
 
+    # SSH gate (community-scripts channel, docs/hardening/SSH-GATE.md). Opt-in:
+    # the installer sets PROXMOX_GUI_COMMUNITY_SCRIPTS_ENABLED=true only with
+    # --enable-community-scripts.
+    community_scripts_enabled: bool = False
+    ssh_key_path: Path = Path("/etc/proxmox-gui/gui_ed25519")
+    ssh_known_hosts_path: Path = Path("/var/lib/proxmox-gui/ssh/known_hosts")
+
+    # Redis (arq). Production: unix socket path set by the systemd units; unset = loopback TCP.
+    redis_socket: str | None = None
+
+    # Self-update handshake with the root updater (docs/hardening/UPDATER.md). The worker only
+    # writes a request file and reads the updater's status file; it never runs anything.
+    update_request_path: Path = Path("/var/lib/proxmox-gui/update/request")
+    update_status_path: Path = Path("/run/proxmox-gui-updater/status.json")
+    updater_path: Path = Path("/usr/local/sbin/proxmox-gui-updater")
+    release_conf_path: Path = Path("/etc/proxmox-gui/release.conf")
+
+    # First-run setup token (F-06). Set by the systemd units; when set, POST /setup/admin requires
+    # it in X-Setup-Token. Unset = no token (dev/tests only).
+    setup_token_file: Path | None = None
+
+    # WebSocket Origin allow-list (F-12). Empty = only same-origin (Origin host == Host header).
+    allowed_origins: list[str] = []
+
+    # Hosts the API answers to (TrustedHostMiddleware, P5-04). Empty = not enforced (dev/tests).
+    allowed_hosts: list[str] = []
+
+    # Serve /api/docs, /api/redoc and /api/openapi.json (D11). Off in production.
+    enable_docs: bool = False
+
     # Database.
     database_url: str = "sqlite+aiosqlite:///./app.db"
     sql_echo: bool = False

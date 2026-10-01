@@ -1,7 +1,7 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 // XSS regression tests for renderMarkdown (T-02-05-01 mitigation).
 //
-// Runs in happy-dom so DOMPurify has a real DOM (window + document) to work
+// Runs in jsdom (happy-dom makes DOMPurify 3.4.x return unsanitized output) so DOMPurify has a real DOM (window + document) to work
 // with. Without a DOM environment DOMPurify falls back to identity (server-
 // side SSR path) and the XSS assertions would be vacuously true.
 

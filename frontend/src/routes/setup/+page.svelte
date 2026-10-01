@@ -23,6 +23,7 @@
   All copy is verbatim from UI-SPEC §Copywriting Contract.
 -->
 <script lang="ts">
+  let { data }: { data: { tokenRequired: boolean } } = $props();
   import { goto, invalidateAll } from '$app/navigation';
   import * as Card from '$lib/components/ui/card';
   import * as Alert from '$lib/components/ui/alert';
@@ -44,6 +45,7 @@
   let step = $state<Step>(1);
 
   // ---- step 2 (admin) state ----------------------------------------------
+  let setupToken = $state('');
   let adminUsername = $state('');
   let adminEmail = $state('');
   let adminPassword = $state('');
@@ -71,6 +73,8 @@
 
   function validateAdmin(): boolean {
     const errs: Record<string, string> = {};
+    if (data.tokenRequired && !setupToken.trim())
+      errs['setup-token'] = 'The setup token is required.';
     if (!adminUsername.trim()) errs['setup-username'] = 'Username is required.';
     else if (!USERNAME_RE.test(adminUsername.trim()))
       errs['setup-username'] =
@@ -107,6 +111,9 @@
         err.body && typeof err.body === 'object' && 'detail' in err.body
           ? String((err.body as { detail: unknown }).detail).toLowerCase()
           : '';
+      if (err.status === 403) return 'The setup token is invalid.';
+      if (err.status === 429) return 'Too many attempts. Wait a minute and try again.';
+      if (err.status === 503) return 'Setup is not available: the setup token is not provisioned on the server.';
       if (err.status === 409 && detail.includes('username'))
         return 'A user with that username already exists.';
       if (err.status === 409 && detail.includes('email'))
@@ -158,7 +165,8 @@
         username: adminUsername.trim(),
         email: adminEmail.trim(),
         password: adminPassword
-      });
+      }, { setupToken });
+      setupToken = '';
       // Auto-login so step 3 (authenticated /api/v1/clusters) works.
       await api.auth.login({ username: adminUsername.trim(), password: adminPassword });
       // Refresh layout data so locals.user reflects the new session before
@@ -339,6 +347,27 @@
             <AlertTriangle aria-hidden="true" />
             <Alert.Title>{adminFormError}</Alert.Title>
           </Alert.Root>
+        {/if}
+
+        {#if data.tokenRequired}
+          <div class="flex flex-col gap-2">
+            <Label for="setup-token">Setup token</Label>
+            <PasswordInput
+              id="setup-token"
+              name="setup_token"
+              autocomplete="off"
+              bind:value={setupToken}
+              disabled={adminSubmitting}
+              required
+              aria-invalid={adminFieldErrors['setup-token'] ? 'true' : undefined}
+            />
+            <p class="text-muted-foreground text-[13px]">
+              Read it on the Proxmox host: <code>pct exec &lt;ctid&gt; -- cat /etc/proxmox-gui/setup-token</code>
+            </p>
+            {#if adminFieldErrors['setup-token']}
+              <p class="text-destructive text-[13px]">{adminFieldErrors['setup-token']}</p>
+            {/if}
+          </div>
         {/if}
 
         <div class="flex flex-col gap-2">

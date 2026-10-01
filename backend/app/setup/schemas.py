@@ -23,6 +23,8 @@ class SetupStatusResponse(BaseModel):
 
     no_admin_yet: bool
     cluster_count: int
+    #: The wizard must ask for the setup token (never the token itself).
+    token_required: bool = False
 
 
 class SetupAdminRequest(BaseModel):

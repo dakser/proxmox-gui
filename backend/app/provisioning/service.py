@@ -408,11 +408,19 @@ async def enqueue_community_script(
     the worker's ``run_community_script`` runs the two stages.
     """
     from app.catalog import service as catalog_service
+    from app.clusters.ssh_gate import CHANNEL_DISABLED_DETAIL, gate_settings
 
     team_id = request.team_id
     actor_user_id = principal.user.id
 
     await _require_team_membership(db, user_id=actor_user_id, team_id=team_id)
+
+    # The SSH channel is opt-in (F-01/D1): refuse BEFORE reserving a VMID or
+    # creating anything, so a disabled channel never leaves a half-made CT.
+    if not gate_settings().community_scripts_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=CHANNEL_DISABLED_DETAIL
+        )
 
     # Validate the slug against the catalog — an unknown slug never resolves to
     # a script (threat T-04-06-01).

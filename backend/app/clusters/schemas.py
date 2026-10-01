@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # A plain ``str | None = None`` field cannot tell those apart; the sentinel
 # can. Re-exported as the module-local ``_UNSET`` so the field default below
 # reads cleanly.
+from app.clusters.target_policy import check_host_literal, check_port
 from app.core.patch import UNSET as _UNSET
 
 # Realm-qualified user format: ``name@pam`` or ``name@pve`` (PVE basic shape).
@@ -37,6 +38,30 @@ def _reject_url_in_host(value: str) -> str:
     """
     if value.startswith(("http://", "https://", "ws://", "wss://")):
         raise ValueError("Use bare hostname or IP, not a URL (no http:// prefix)")
+    return check_host_literal(value)  # F-13: no loopback/link-local/metadata, sane syntax
+
+
+_FINGERPRINT_RE = re.compile(r"^(?:[0-9A-Fa-f]{2}:?){31}[0-9A-Fa-f]{2}$")
+
+
+def _validate_fingerprint(value: str | None) -> str | None:
+    """SHA-256 fingerprint as 64 hex chars, optionally colon-grouped (D-20)."""
+    if value is None or value == "":
+        return value
+    if not _FINGERPRINT_RE.fullmatch(value):
+        raise ValueError("tls_fingerprint must be a SHA-256 fingerprint (64 hex characters)")
+    return value
+
+
+def _validate_port(value: int | None) -> int | None:
+    if value is None:
+        return value
+    return check_port(value)
+
+
+def _validate_name(value: str | None) -> str | None:
+    if value is not None and any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise ValueError("name must not contain control characters")
     return value
 
 
@@ -56,7 +81,22 @@ class ClusterCreate(BaseModel):
     token_name: str = Field(min_length=1, max_length=64)
     api_token_secret: str = Field(min_length=1)
     tls_fingerprint: str | None = Field(default=None, max_length=255)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("port")
+    @classmethod
+    def _check_port(cls, v):  # noqa: ANN001, ANN206
+        return _validate_port(v)
+
+    @field_validator("tls_fingerprint")
+    @classmethod
+    def _check_fp(cls, v):  # noqa: ANN001, ANN206
+        return _validate_fingerprint(v)
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v):  # noqa: ANN001, ANN206
+        return _validate_name(v)
 
     @field_validator("host")
     @classmethod
@@ -66,7 +106,7 @@ class ClusterCreate(BaseModel):
     @field_validator("token_user")
     @classmethod
     def _validate_token_user(cls, v: str) -> str:
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )
@@ -88,6 +128,16 @@ class ClusterTestRequest(BaseModel):
     api_token_secret: str = Field(min_length=1)
     tls_fingerprint: str | None = Field(default=None, max_length=255)
 
+    @field_validator("port")
+    @classmethod
+    def _check_port(cls, v):  # noqa: ANN001, ANN206
+        return _validate_port(v)
+
+    @field_validator("tls_fingerprint")
+    @classmethod
+    def _check_fp(cls, v):  # noqa: ANN001, ANN206
+        return _validate_fingerprint(v)
+
     @field_validator("host")
     @classmethod
     def _validate_host(cls, v: str) -> str:
@@ -96,7 +146,7 @@ class ClusterTestRequest(BaseModel):
     @field_validator("token_user")
     @classmethod
     def _validate_token_user(cls, v: str) -> str:
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )
@@ -132,12 +182,27 @@ class ClusterUpdate(BaseModel):
     token_name: str | None = Field(default=None, min_length=1, max_length=64)
     api_token_secret: str | None = Field(default=None, min_length=1)
     tls_fingerprint: str | None = Field(default=None, max_length=255)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
     # Nullable-clearable: absent → leave unchanged; null → clear; "local-zfs" →
     # set. The default is the ``_UNSET`` sentinel so the service can tell the
     # three cases apart (D-08 — the admin must be able to disable backups).
     backup_storage: str | None = Field(default=_UNSET, max_length=128)
+
+    @field_validator("port")
+    @classmethod
+    def _check_port(cls, v):  # noqa: ANN001, ANN206
+        return _validate_port(v)
+
+    @field_validator("tls_fingerprint")
+    @classmethod
+    def _check_fp(cls, v):  # noqa: ANN001, ANN206
+        return _validate_fingerprint(v)
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v):  # noqa: ANN001, ANN206
+        return _validate_name(v)
 
     @field_validator("host")
     @classmethod
@@ -155,7 +220,7 @@ class ClusterUpdate(BaseModel):
     def _validate_token_user(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        if not _TOKEN_USER_RE.match(v):
+        if not _TOKEN_USER_RE.fullmatch(v):
             raise ValueError(
                 "token_user must be of the form name@pam or name@pve"
             )

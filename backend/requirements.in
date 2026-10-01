@@ -1,0 +1,6 @@
+# Inputs for requirements.lock (see scripts/update-lock.sh).
+# Runtime dependencies come from pyproject.toml ([project].dependencies, all pinned with ==).
+# Build tools are pinned here so the project itself can be installed with
+# --no-build-isolation from hashed wheels only (no unpinned build-time downloads).
+setuptools==83.0.0
+wheel==0.46.2

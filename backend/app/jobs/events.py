@@ -53,14 +53,21 @@ class ConnectionManager:
     def __init__(self) -> None:
         # websocket -> set of team ids it is authorized for.
         self._sockets: dict[Any, set[int]] = {}
+        # sockets whose user is an admin (the only audience for system, team-less events)
+        self._admin_sockets: set[Any] = set()
 
-    def add(self, websocket: Any, team_ids: list[int]) -> None:
+    def add(self, websocket: Any, team_ids: list[int], *, is_admin: bool = False) -> None:
         """Register a connected socket with its authorized team set."""
         self._sockets[websocket] = set(team_ids)
+        if is_admin:
+            self._admin_sockets.add(websocket)
+        else:
+            self._admin_sockets.discard(websocket)
 
     def remove(self, websocket: Any) -> None:
         """Drop a socket (no-op if absent)."""
         self._sockets.pop(websocket, None)
+        self._admin_sockets.discard(websocket)
 
     @property
     def connection_count(self) -> int:
@@ -74,9 +81,12 @@ class ConnectionManager:
         """
         job = event.get("job") or {}
         job_team = job.get("team_id")
-        # A team-less event (e.g. an internal job) goes to every socket.
+        # A team-less (system) event — self-update, boot jobs — goes to ADMIN sockets only.
         for websocket, team_ids in list(self._sockets.items()):
-            if job_team is not None and job_team not in team_ids:
+            if job_team is None:
+                if websocket not in self._admin_sockets:
+                    continue
+            elif job_team not in team_ids:
                 continue
             try:
                 await websocket.send_json(event)
@@ -84,6 +94,7 @@ class ConnectionManager:
                 # break the fan-out for the others.
                 logger.debug("dropping dead Tasks-drawer socket: %s", exc)
                 self._sockets.pop(websocket, None)
+                self._admin_sockets.discard(websocket)
 
 
 #: Process-wide singleton — the API lifespan's pump + the WS endpoint share it.

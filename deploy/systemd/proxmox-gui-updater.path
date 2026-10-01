@@ -1,0 +1,14 @@
+# /etc/systemd/system/proxmox-gui-updater.path   (root:root 0644)
+# The unprivileged worker writes a tiny request file (a release tag) here; systemd — not the
+# worker — then starts the root updater, which validates and verifies everything itself
+# (docs/hardening/UPDATER.md, F-03). PathExists (not PathChanged) so a request is never missed.
+
+[Unit]
+Description=Watch for a Proxmox GUI update request
+
+[Path]
+PathExists=/var/lib/proxmox-gui/update/request
+Unit=proxmox-gui-updater.service
+
+[Install]
+WantedBy=multi-user.target

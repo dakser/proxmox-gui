@@ -23,10 +23,12 @@ Handshake:
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.db import get_db
 from app.core.jwt import decode_access_token
 from app.inventory.access import _team_ids_for_user
@@ -43,6 +45,27 @@ router = APIRouter()
 _WS_POLICY_VIOLATION = 1008
 
 
+def origin_allowed(websocket: WebSocket) -> bool:
+    """CSWSH guard (F-12): a browser always sends ``Origin`` on a WebSocket upgrade, and the
+    session cookie would otherwise ride along from ANY site. Accept only an Origin whose host is
+    the request's own ``Host`` (same-origin behind Caddy) or one listed in ``allowed_origins``.
+    A missing Origin is refused (fail closed): the UI is browser-only."""
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return False
+    try:
+        parts = urlsplit(origin)
+    except ValueError:
+        return False
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return False
+    normalized = f"{parts.scheme}://{parts.netloc}".lower()
+    if normalized in {o.rstrip("/").lower() for o in settings.allowed_origins}:
+        return True
+    host = (websocket.headers.get("host") or "").lower()
+    return bool(host) and parts.netloc.lower() == host
+
+
 async def _resolve_ws_user(websocket: WebSocket, db) -> User | None:  # noqa: ANN001
     """Resolve the ``access_token`` session cookie on a WS upgrade to a User.
 
@@ -51,6 +74,9 @@ async def _resolve_ws_user(websocket: WebSocket, db) -> User | None:  # noqa: AN
     Bearer auth is intentionally NOT supported on the WS handshake (the drawer
     is a browser-session feature).
     """
+    if not origin_allowed(websocket):
+        logger.info("websocket rejected: Origin %r not allowed", (websocket.headers.get("origin") or "")[:80])
+        return None
     token = websocket.cookies.get("access_token")
     if not token:
         return None
@@ -89,7 +115,7 @@ async def jobs_ws(
     await websocket.send_json({"type": "backfill", "jobs": backfill})
 
     # Register for the team-scoped fan-out — broadcast() re-filters per push.
-    CONNECTION_MANAGER.add(websocket, team_ids)
+    CONNECTION_MANAGER.add(websocket, team_ids, is_admin=bool(user.is_admin))
     try:
         while True:
             # Client keepalive pings; the server never needs the payload.

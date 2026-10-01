@@ -196,6 +196,9 @@ async def test_retry_delete_kind_rejected_409(client, session_factory):
 # ---------------------------------------------------------------------------
 
 
+WS_ORIGIN = {"origin": "http://testserver"}  # same-origin browser handshake (F-12)
+
+
 def test_ws_jobs_unauthenticated_closed_1008(session_factory):
     """A WS connect with no valid session is closed with code 1008."""
     from starlette.testclient import TestClient
@@ -214,7 +217,7 @@ def test_ws_jobs_unauthenticated_closed_1008(session_factory):
 
     with TestClient(app) as tc:
         with pytest.raises(WebSocketDisconnect) as exc_info:
-            with tc.websocket_connect("/api/v1/ws/jobs") as ws:
+            with tc.websocket_connect("/api/v1/ws/jobs", headers=WS_ORIGIN) as ws:
                 ws.receive_text()
         assert exc_info.value.code == 1008
 
@@ -245,7 +248,7 @@ async def test_ws_jobs_authenticated_receives_backfill(client, session_factory):
 
     def _run_ws_test() -> dict:
         with TestClient(app, cookies=cookies) as tc:
-            with tc.websocket_connect("/api/v1/ws/jobs") as ws:
+            with tc.websocket_connect("/api/v1/ws/jobs", headers=WS_ORIGIN) as ws:
                 return ws.receive_json()
 
     msg = await anyio.to_thread.run_sync(_run_ws_test)

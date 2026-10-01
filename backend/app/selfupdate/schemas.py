@@ -19,11 +19,11 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-#: A semver-ish tag string: optional ``v`` prefix, then ``MAJOR.MINOR.PATCH``
-#: with optional ``-pre.N`` / ``+build.N`` (PEP 440 / SemVer 2.0 hybrid). The
+#: A release tag: ``vMAJOR.MINOR.PATCH`` with an optional ``-prerelease`` (the same
+#: grammar the root updater enforces; no ``+build``, no bare numbers). The
 #: regex deliberately rejects spaces, ``..``, shell metacharacters and any
-#: byte outside ``[A-Za-z0-9.+-]`` — the string is going into an HTTPS URL.
-_TAG_RE = re.compile(r"^v?\d+(?:\.\d+){0,2}(?:[-+][A-Za-z0-9.]+)?$")
+#: byte outside ``[A-Za-z0-9.-]`` — the string is written to the updater's request file.
+_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$")
 
 
 class SelfUpdateRequest(BaseModel):
@@ -47,7 +47,7 @@ class SelfUpdateRequest(BaseModel):
         """Reject anything that is not a clean tag string (V5)."""
         if value is None:
             return value
-        if not _TAG_RE.match(value):
+        if ".." in value or not _TAG_RE.fullmatch(value):
             raise ValueError(
                 "target_version must be a semver tag (e.g. 'v0.5.0'); "
                 "got an unexpected character."

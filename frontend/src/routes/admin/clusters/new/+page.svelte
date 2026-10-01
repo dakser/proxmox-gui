@@ -68,21 +68,20 @@
   let fieldErrors = $state<Record<string, string>>({});
 
   // ---- Post-register SSH-trust step (D-22/D-23) ----
-  // After a cluster is registered we show the GUI public key + a copy-paste
-  // one-liner the admin runs on each node, plus a Verify-SSH button. This is the
-  // prerequisite for the community-script (pct exec over SSH) deploy path; plain
-  // LXC/VM provisioning need no SSH.
+  // After a cluster is registered we show how to enable the opt-in, restricted
+  // SSH channel (installer flag — never a bare authorized_keys line, F-01), plus
+  // a Verify-SSH button. This is the prerequisite for the community-script
+  // (pct exec over SSH) deploy path; plain LXC/VM provisioning need no SSH.
   let registeredClusterId = $state<number | null>(null);
   let guiPubkey = $state<string>('');
   let pubkeyPresent = $state<boolean>(false);
   let verifying = $state(false);
   let sshResult = $state<{ ok: boolean; detail: string; node: string | null } | null>(null);
 
-  const trustOneLiner = $derived(
-    guiPubkey
-      ? `echo '${guiPubkey}' >> /root/.ssh/authorized_keys`
-      : ''
-  );
+  // Run on the PVE node hosting this GUI's LXC. The installer installs the
+  // forced-command gate and writes a restricted authorized_keys entry itself.
+  const trustOneLiner =
+    'bash install.sh --enable-community-scripts --ctid <GUI-LXC-ID> --release <vX.Y.Z>';
 
   async function copyOneLiner() {
     try {
@@ -510,21 +509,24 @@
     <Card.Header>
       <Card.Title class="text-lg font-semibold tracking-tight">SSH trust (for community scripts)</Card.Title>
       <Card.Description>
-        Community-script deploys run inside the new container via SSH from the
-        GUI to each node. Trust the GUI's key on every node of this cluster, then
-        verify. Plain VM/LXC provisioning works without this.
+        Community-script deploys run inside the new container via a restricted
+        SSH channel from the GUI to its Proxmox node. It is disabled by default;
+        enable it with the installer, then verify. Plain VM/LXC provisioning
+        works without this.
       </Card.Description>
     </Card.Header>
     <Card.Content class="flex flex-col gap-4">
       {#if pubkeyPresent && guiPubkey}
         <div class="flex flex-col gap-2">
-          <Label>Run this on each Proxmox node (as root)</Label>
+          <Label>Run this on the Proxmox node that hosts the GUI (as root)</Label>
           <div class="flex items-start gap-2">
             <pre class="bg-muted flex-1 overflow-x-auto rounded-md border border-border p-3 font-mono text-[12px] leading-relaxed"><code>{trustOneLiner}</code></pre>
             <Button type="button" variant="outline" onclick={copyOneLiner}>Copy</Button>
           </div>
           <p class="text-muted-foreground text-[13px]">
-            This appends the GUI's public key to the node's authorized_keys. The
+            This installs a forced-command gate on the node and adds the GUI's
+            public key restricted to it (no shell, no forwarding, only
+            <code>pct exec</code> into tagged unprivileged containers). The
             GUI's private key never leaves this server.
           </p>
         </div>

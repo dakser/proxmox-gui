@@ -70,7 +70,7 @@ async def get_current_principal(
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header.removeprefix("Bearer ").strip()
-        if not _PAT_BEARER_RE.match(token):
+        if not _PAT_BEARER_RE.fullmatch(token):
             # Pitfall A8: refuse to fall through to cookie auth — a malformed
             # Bearer is an explicit (failed) auth attempt; rejecting it
             # eliminates JWT-via-Bearer ambiguity.

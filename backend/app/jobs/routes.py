@@ -47,6 +47,15 @@ IDEMPOTENT_KINDS = frozenset(
 )
 
 
+def _job_visible(job, principal: Principal, team_ids: list[int]) -> bool:  # noqa: ANN001
+    """Team jobs: members only. System jobs (``team_id`` NULL: self-update, boot jobs): admins only."""
+    if job is None:
+        return False
+    if job.team_id is None:
+        return bool(principal.user.is_admin)
+    return job.team_id in team_ids
+
+
 def _serialize(job) -> JobResponse:  # noqa: ANN001
     return JobResponse.model_validate(job)
 
@@ -87,7 +96,7 @@ async def jobs_get(
     team_ids = await _team_ids_for_user(db, user_id=principal.user.id)
     # Don't-leak-existence: an out-of-team job answers with the same 404 as a
     # genuinely missing job (Plan 01-05 cross-user-404 convention).
-    if job is None or (job.team_id is not None and job.team_id not in team_ids):
+    if job is None or not _job_visible(job, principal, team_ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )
@@ -110,7 +119,7 @@ async def jobs_retry(
 ) -> JobResponse:
     job = await service.get_job(db, job_id)
     team_ids = await _team_ids_for_user(db, user_id=principal.user.id)
-    if job is None or (job.team_id is not None and job.team_id not in team_ids):
+    if job is None or not _job_visible(job, principal, team_ids):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
         )

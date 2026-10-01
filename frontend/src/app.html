@@ -4,11 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
-    <script>
+    <script nonce="%sveltekit.nonce%">
       // FOUC mitigation: read persisted theme preference (or fall back to the
       // user's OS preference) and set the `dark` class on <html> BEFORE any
       // stylesheet loads. UI-SPEC §Theme Toggle Contract explicitly allows
-      // this single inline script; see threat T-01-03-04.
+      // this single inline script; see threat T-01-03-04. It carries the per-request
+      // CSP nonce (kit.csp, F-12) so script-src needs no 'unsafe-inline'.
       (function () {
         try {
           var t = localStorage.getItem('theme');

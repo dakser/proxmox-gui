@@ -44,6 +44,13 @@ from requests.exceptions import Timeout as RequestsTimeout
 
 from app.clusters.errors import PVEAPIError, PVEAuthError, PVEUnreachable
 from app.clusters.pinning import mount_pinning_adapter
+from app.clusters.ssh_gate import (
+    CHANNEL_DISABLED_DETAIL,
+    build_exec_payload,
+    build_ssh_argv,
+    exec_remote_command,
+    gate_settings,
+)
 
 
 @dataclass
@@ -1047,8 +1054,9 @@ class PVEConnector:
     # The SSH transport here shells out to the OS ``ssh`` binary via
     # ``asyncio.create_subprocess_exec`` — no extra Python SSH dependency, the
     # subprocess stdout is a live byte stream the worker forwards to the Tasks
-    # drawer chunk-by-chunk (D-08). ``StrictHostKeyChecking=accept-new`` TOFU-
-    # pins the node's host key on first contact.
+    # drawer chunk-by-chunk (D-08). The node's host key is pinned by the
+    # installer (``StrictHostKeyChecking=yes`` + a dedicated known_hosts) and the
+    # node side is a forced-command gate (docs/hardening/SSH-GATE.md, F-01/F-11).
     # ------------------------------------------------------------------
 
     async def lxc_exec(
@@ -1085,6 +1093,14 @@ class PVEConnector:
         ``PVEUnreachable``. It runs a command inside an already-created
         container — it does NOT clear the resource cache.
         """
+        # Pre-checks run OUTSIDE the breaker: a disabled channel or a malformed
+        # node/vmid is a local refusal, not a PVE failure, and must not trip it.
+        if not gate_settings().community_scripts_enabled:
+            raise PVEUnreachable(CHANNEL_DISABLED_DETAIL)
+        try:
+            build_ssh_argv(gate_settings(), node, exec_remote_command(vmid))
+        except ValueError as exc:
+            raise PVEUnreachable(str(exc)) from exc
         return await self._call_with_breaker(
             self._ssh_pct_exec,
             node=node,
@@ -1111,32 +1127,22 @@ class PVEConnector:
 
         ``_call_with_breaker`` runs this in ``asyncio.to_thread`` (proxmoxer's
         own convention). The OS ``ssh`` client is the transport; the node-side
-        shell exports ``env`` then runs ``pct exec <vmid> -- <command>``.
+        forced command (proxmox-gui-ssh-gate) runs ``pct exec <vmid> -- <argv>``.
         """
-        import shlex
         import subprocess
 
-        # Build the node-side shell command. Each env var and each pct-exec
-        # argument is shell-quoted exactly once with shlex.quote — the env
-        # block + the install command can never break out into the node shell
-        # (threat T-04-06-01).
-        env_prefix = ""
-        if env:
-            env_prefix = " ".join(
-                f"{key}={shlex.quote(str(value))}" for key, value in env.items()
-            )
-            env_prefix = f"export {env_prefix}; " if env_prefix else ""
-        pct_args = " ".join(shlex.quote(arg) for arg in command)
-        remote_cmd = f"{env_prefix}pct exec {int(vmid)} -- {pct_args}"
-
-        ssh_argv = [
-            "ssh",
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", f"ConnectTimeout={int(min(timeout, 30))}",
-            f"root@{node}",
-            remote_cmd,
-        ]
+        # Gate protocol (docs/hardening/SSH-GATE.md): the node's authorized_keys
+        # entry forces proxmox-gui-ssh-gate, so the only remote "command" is a
+        # verb (`exec <vmid>`); the argv/env travel as a JSON line on stdin and
+        # no remote shell string is ever built here (F-01, threat T-04-06-01).
+        cfg = gate_settings()
+        if not cfg.community_scripts_enabled:
+            raise PVEUnreachable(CHANNEL_DISABLED_DETAIL)
+        ssh_argv = build_ssh_argv(
+            cfg, node, exec_remote_command(vmid),
+            connect_timeout=int(min(timeout, 30)),
+        )
+        request = build_exec_payload(command=command, env=env, stdin_data=stdin_data)
 
         chunks: list[str] = []
         proc = subprocess.Popen(  # noqa: S603 — argv list, no shell=True
@@ -1146,9 +1152,9 @@ class PVEConnector:
             stderr=subprocess.STDOUT,
             text=True,
         )
-        if stdin_data is not None and proc.stdin is not None:
+        if proc.stdin is not None:
             try:
-                proc.stdin.write(stdin_data)
+                proc.stdin.write(request)
                 proc.stdin.flush()
             except (BrokenPipeError, OSError):
                 pass

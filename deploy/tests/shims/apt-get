@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+export SHIM_NAME=apt-get
+# shellcheck source=_shim.sh
+source "$(dirname "$0")/_shim.sh"

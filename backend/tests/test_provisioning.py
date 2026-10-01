@@ -525,3 +525,34 @@ def test_app_boots_with_provisioning_router() -> None:
     }
     assert "provisioning_create_lxc" in op_ids
     assert "provisioning_create_qemu" in op_ids
+
+
+# ===========================================================================
+# Community-script hardening (F-01 / D8 / P1-06 / P1-07)
+# ===========================================================================
+
+
+def _community_request(**over):
+    from app.provisioning.schemas import CommunityScriptRequest
+
+    body = dict(
+        team_id=1, node="pve-01", storage="local", script_slug="docker",
+        hostname="app", cpu_cores=1, memory_mb=512, disk_gb=4,
+    )
+    body.update(over)
+    return CommunityScriptRequest(**body)
+
+
+def test_community_script_lxc_is_created_unprivileged_and_tagged() -> None:
+    """The PVE create call carries tags=proxmox-gui + unprivileged=1 so the
+    host SSH gate (which requires both) will accept the later `pct exec`."""
+    cfg = _community_request().to_pve_config(pool="gui-team-1", ostemplate="local:vztmpl/x.tar.zst")
+    assert cfg["tags"] == "proxmox-gui"
+    assert cfg["unprivileged"] == 1
+
+
+def test_community_script_rejects_privileged_request() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        _community_request(unprivileged=False)

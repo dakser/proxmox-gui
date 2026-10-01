@@ -20,6 +20,25 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter(),
+    // Content-Security-Policy is emitted by SvelteKit itself (mode 'auto': a hash for
+    // prerendered pages, a per-request nonce for SSR pages) so `script-src` needs NO
+    // 'unsafe-inline' (F-12). Caddy no longer sets a CSP of its own. style-src keeps
+    // 'unsafe-inline': Svelte transitions and bits-ui set inline style attributes.
+    csp: {
+      mode: 'auto',
+      directives: {
+        'default-src': ['self'],
+        'script-src': ['self'],
+        'style-src': ['self', 'unsafe-inline'],
+        'img-src': ['self', 'data:', 'https:'],
+        'connect-src': ['self'],
+        'font-src': ['self', 'data:'],
+        'frame-ancestors': ['self'],
+        'base-uri': ['self'],
+        'form-action': ['self'],
+        'object-src': ['none']
+      }
+    },
     alias: {
       $lib: './src/lib'
     }

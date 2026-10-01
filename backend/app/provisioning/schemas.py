@@ -21,9 +21,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.lifecycle.schemas import JobAcceptedResponse
+
+#: PVE tag the host SSH gate requires before it will `pct exec` into a container.
+COMMUNITY_SCRIPT_TAG = "proxmox-gui"
 
 # ---------------------------------------------------------------------------
 # Shared network sub-model
@@ -324,6 +327,17 @@ class CommunityScriptRequest(BaseModel):
     ssh_public_keys: str | None = Field(default=None, max_length=8192)
     script_options: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("unprivileged")
+    @classmethod
+    def _must_be_unprivileged(cls, value: bool) -> bool:
+        """The SSH gate only execs into unprivileged CTs (D8 / F-01)."""
+        if not value:
+            raise ValueError(
+                "community-script containers must be unprivileged "
+                "(the host SSH gate refuses privileged containers)"
+            )
+        return value
+
     @property
     def requested_ram_bytes(self) -> int:
         return self.memory_mb * 1024 * 1024
@@ -350,7 +364,10 @@ class CommunityScriptRequest(BaseModel):
             "cores": self.cpu_cores,
             "memory": self.memory_mb,
             "rootfs": f"{self.storage}:{self.disk_gb}",
-            "unprivileged": 1 if self.unprivileged else 0,
+            "unprivileged": 1,
+            # The host-side SSH gate only execs into unprivileged containers
+            # carrying this tag (F-01, D8).
+            "tags": COMMUNITY_SCRIPT_TAG,
             "pool": pool,
             "ostemplate": ostemplate,
         }

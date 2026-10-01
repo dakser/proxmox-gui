@@ -4,7 +4,7 @@
 // strict allow-list. XSS coverage: <script>, <iframe>, on* handlers, and
 // javascript: URLs are all stripped. Unit tests in
 // frontend/tests/components/markdown.test.ts cover these cases (run with
-// happy-dom environment so DOMPurify has a real DOM).
+// jsdom environment so DOMPurify has a real DOM (happy-dom no longer works with DOMPurify 3.4.x: sanitize() became a no-op)).
 //
 // T-02-05-01 mitigation: PVE description is user-controlled and rendered into
 // DOM via @html. DOMPurify's ALLOWED_TAGS + ALLOWED_ATTR constraints ensure
@@ -37,9 +37,7 @@ type PurifyInstance = { sanitize(dirty: string, config?: object): string };
  *
  * - Browser: the default export already has `.sanitize` bound.
  * - Node + happy-dom: the default export is the factory — call it with window.
- * - Pure Node (SSR, no DOM): return an identity function (safe because the
- *   output of renderMarkdown is only ever inserted via {@html} in client-side
- *   Svelte, never during SSR).
+ * - Pure Node (SSR, no DOM): escape the markup (fail closed) instead of passing it through.
  */
 function resolvePurify(): PurifyInstance {
   const dp = DOMPurifyFactory as unknown as {
@@ -57,8 +55,18 @@ function resolvePurify(): PurifyInstance {
     return (dp as (win: Window) => PurifyInstance)(window);
   }
 
-  // SSR / pure Node — no DOM, return identity passthrough.
-  return { sanitize: (html: string) => html };
+  // SSR / pure Node — no DOM to sanitize with. FAIL CLOSED (F-10 hardening): never pass markup through
+  // unsanitized; escape it so the worst case is visible text, not executable HTML.
+  return { sanitize: (html: string) => escapeHtml(html) };
+}
+
+function escapeHtml(html: string): string {
+  return html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 let _purify: PurifyInstance | null = null;

@@ -28,6 +28,8 @@ export interface User {
 export interface SetupStatus {
   no_admin_yet: boolean;
   cluster_count: number;
+  /** The wizard must ask for the setup token (F-06). Never contains the token. */
+  token_required?: boolean;
 }
 
 /** Mirrors `app.setup.schemas.SetupAdminRequest` (write-only). */

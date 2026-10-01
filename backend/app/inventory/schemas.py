@@ -123,7 +123,7 @@ class TagsUpdate(BaseModel):
     @classmethod
     def _validate_each_tag(cls, v: list[str]) -> list[str]:
         for t in v:
-            if not PVE_TAG_RE.match(t):
+            if not PVE_TAG_RE.fullmatch(t):
                 raise ValueError(f"invalid tag format: {t!r}")
         # Dedup + stable sort happens at write time in the service.
         return v

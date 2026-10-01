@@ -33,12 +33,14 @@ to/from Proxmox. Pinned by spike 04-03 (``04-SPIKE-novnc.md``):
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import ssl
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
+from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as websockets_connect
 from websockets.exceptions import ConnectionClosed
 
@@ -96,6 +98,42 @@ def _upstream_ssl_context(*, verify_ssl: bool) -> ssl.SSLContext | bool:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+def _normalise_fingerprint(value: str) -> str:
+    return value.replace(":", "").strip().lower()
+
+
+def _pinned_connection_class(fingerprint: str) -> type[ClientConnection]:
+    """A ``ClientConnection`` that checks the PVE leaf cert's SHA-256 against ``fingerprint``.
+
+    ``connection_made`` runs right after the TLS handshake and BEFORE the HTTP upgrade request is
+    written — so a mismatching (man-in-the-middle) server is dropped before it can see the
+    ``Authorization: PVEAPIToken=…`` header (D-20 / F-13). ``verify_ssl=False`` alone would accept
+    any certificate.
+    """
+    pin = _normalise_fingerprint(fingerprint)
+
+    class _PinnedConnection(ClientConnection):
+        def connection_made(self, transport):
+            ssl_obj = transport.get_extra_info("ssl_object")
+            der = ssl_obj.getpeercert(binary_form=True) if ssl_obj is not None else None
+            if not der or hashlib.sha256(der).hexdigest() != pin:
+                transport.abort()
+                raise ssl.SSLError("upstream TLS fingerprint does not match the pinned value")
+            super().connection_made(transport)
+
+    return _PinnedConnection
+
+
+def _upstream_connect_kwargs(connector) -> dict:
+    """SSL posture for the upstream leg, mirroring the REST connector: pinned when a fingerprint is
+    stored and CA validation is off, verifying when ``verify_ssl``, otherwise unverified (TOFU absent)."""
+    kwargs: dict = {"ssl": _upstream_ssl_context(verify_ssl=connector.verify_ssl)}
+    fingerprint = getattr(connector, "tls_fingerprint", None)
+    if fingerprint and not connector.verify_ssl:
+        kwargs["create_connection"] = _pinned_connection_class(fingerprint)
+    return kwargs
 
 
 def _build_vncwebsocket_url(
@@ -242,7 +280,7 @@ async def console_relay(
         vnc_port=vnc_port,
         ticket=ticket,
     )
-    ssl_ctx = _upstream_ssl_context(verify_ssl=connector.verify_ssl)
+    connect_kwargs = _upstream_connect_kwargs(connector)
 
     # 5. Open the upstream WS, accept the browser, run the bidirectional relay.
     logger.info(
@@ -261,8 +299,8 @@ async def console_relay(
     try:
         async with websockets_connect(
             upstream_url,
-            ssl=ssl_ctx,
             additional_headers={"Authorization": pve_auth},
+            **connect_kwargs,
         ) as upstream:
             await websocket.accept()
             logger.info(
