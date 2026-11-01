@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Prepara el LXC dedicado y desechable del modo autónomo (Debian 12, sin privilegios, sin nesting ni keyctl).
+# Prepara el LXC dedicado y desechable del modo autónomo (Debian 12 o Ubuntu 22.04/24.04; sin privilegios, sin nesting ni keyctl).
 # Uso (como root, una sola vez):  orchestrator/setup-lxc.sh
 # Después, como el usuario `agent`:  claude /login   y   opencode auth login   (o las variables del proveedor en secrets.env).
 # Qué NO hace: no crea claves SSH, no copia credenciales de Proxmox, no da sudo al usuario `agent`.
@@ -10,6 +10,13 @@ set -euo pipefail
 NODE_VERSION="${NODE_VERSION:-22.11.0}"          # LTS 22; ajusta si cambia la del proyecto (frontend/package.json "engines")
 GITLEAKS_VERSION="${GITLEAKS_VERSION:-8.21.2}"
 AGENT_HOME=/home/agent
+
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID:-}:${VERSION_ID:-}" in
+    debian:12|ubuntu:22.04|ubuntu:24.04) echo "== Sistema: ${PRETTY_NAME}" ;;
+    *) echo "aviso: ${PRETTY_NAME:-desconocido} no está probado (Debian 12, Ubuntu 22.04/24.04); sigo bajo tu responsabilidad." >&2 ;;
+esac
 
 echo "== Paquetes del sistema"
 apt-get update -q

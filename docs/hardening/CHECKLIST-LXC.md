@@ -16,7 +16,7 @@ Tiempo estimado: ~45 min. Marca cada paso. Nada de lo que sigue necesita `pre-pg
 ## B. Pasos
 
 - [ ] **0. Fusiona el PR #5** (el kit) en `master`. Sin eso el LXC no tiene el orquestador en `master`.
-- [ ] **1. Crea el CT** (en el hipervisor exterior, no en `prox-t1`): Debian 12, **sin privilegios**, **sin nesting ni keyctl**, 4 vCPU / 8 GB / 40 GB, red que alcance `192.168.100.156:8006` y `192.168.100.160`. Nombre: `pgui-dev`. Toma un snapshot a mano (lo tomarás tú; el orquestador no tiene token).
+- [ ] **1. El CT** (`pmx-gui-lab`, Ubuntu 22.04, ya creado). Comprueba: **sin privilegios**, **sin nesting ni keyctl**, ≥4 vCPU / 8 GB / 40 GB, red que alcance `192.168.100.156:8006` y `192.168.100.160`, y que esté **fuera** de `prox-t1`. Toma un snapshot a mano antes de seguir (lo tomarás tú; el orquestador no tiene token).
 - [ ] **2. Token de laboratorio en `prox-t1`** (los permisos efectivos son la intersección: al **usuario y al token**):
   ```
   pveum user add pgui-lab-agent@pve
