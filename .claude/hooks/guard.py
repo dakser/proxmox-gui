@@ -39,7 +39,7 @@ WRITABLE = {
 # Never writable by the implementer even if a prefix above matches.
 IMPLEMENTER_DENY = [
     "backend/tests/acceptance/", "frontend/tests/acceptance/", "deploy/tests/acceptance/", "tests/acceptance/",
-    "lab/", "gates.toml", "docs/spec/", "docs/plan.md", "Makefile", ".github/", ".gitleaks.toml",
+    "lab/", "gates.toml", "docs/spec/", "docs/plan.md", "Makefile", ".github/", ".forgejo/", ".gitleaks.toml",
     "deploy/release-signers",
 ]
 
@@ -47,7 +47,7 @@ IMPLEMENTER_DENY = [
 PROTECTED_FOR_ALL = ["docs/spec/", "docs/plan.md", "orchestrator/", ".claude/", ".opencode/", "opencode.json",
                      "AGENTS.md", "CLAUDE.md", "Makefile", "gates.toml", "tests/acceptance/", ".planning/",
                      "scripts/gate.py", "scripts/lock_check.py", "scripts/accept_check.py",
-                     "scripts/accept_check_selftest.py", "scripts/guard_selftest.py", "scripts/gate_selftest.py", "reports/lab2/", "orchestrator/", "scripts/release-sign.sh", ".github/", ".gitleaks.toml",
+                     "scripts/accept_check_selftest.py", "scripts/guard_selftest.py", "scripts/gate_selftest.py", "reports/lab2/", "orchestrator/", "scripts/release-sign.sh", ".github/", ".forgejo/", ".gitleaks.toml",
                      "lab/lib.sh", "lab/run.sh", "lab/selftest.sh", "lab/selftest/", ".git/"]
 
 GIT_WRITE = re.compile(

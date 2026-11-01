@@ -19,7 +19,7 @@ ACCEPTANCE = ("tests/acceptance/", "backend/tests/acceptance/", "frontend/tests/
 # Kit: lo cambia solo el humano con un commit "KIT: ...". Los scripts del proyecto (update-lock.sh, build-release.sh, check.sh)
 # SÍ los toca el implementador; los del kit y la firma de releases, no.
 FROZEN = ("docs/spec/", "docs/plan.md", "orchestrator/", ".claude/", ".opencode/", "opencode.json",
-          "AGENTS.md", "CLAUDE.md", "Makefile", ".github/", ".gitleaks.toml",
+          "AGENTS.md", "CLAUDE.md", "Makefile", ".github/", ".forgejo/", ".gitleaks.toml",
           "scripts/gate.py", "scripts/gate_selftest.py", "scripts/lock_check.py", "scripts/accept_check.py", "scripts/accept_check_selftest.py", "scripts/guard_selftest.py",
           "scripts/release-sign.sh", "deploy/release-signers",
           "lab/lib.sh", "lab/run.sh", "lab/selftest.sh", "lab/selftest/", "reports/lab2/")

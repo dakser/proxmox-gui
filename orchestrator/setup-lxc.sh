@@ -48,14 +48,7 @@ curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o "$tmp/gl.sums"
 (cd "$tmp" && grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz\$" gl.sums | sed 's#  .*#  gl.tar.gz#' | sha256sum -c -)
 tar -xzf "$tmp/gl.tar.gz" -C /usr/local/bin gitleaks
 
-echo "== Herramientas del usuario agent: uv (Python 3.12), Claude Code, OpenCode, GitHub CLI"
-if ! command -v gh >/dev/null; then
-    install -d -m 0755 /etc/apt/keyrings
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
-        >/etc/apt/sources.list.d/github-cli.list
-    apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -yq gh
-fi
+echo "== Herramientas del usuario agent: uv (Python 3.12), Claude Code, OpenCode"
 su - agent -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'
 su - agent -c 'export PATH="$HOME/.local/bin:$PATH"; uv python install 3.12'
 su - agent -c 'command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash'
@@ -66,11 +59,11 @@ grep -q '.opencode/bin' "$AGENT_HOME/.profile" 2>/dev/null || \
 cat <<'MSG'
 
 Listo. Falta, a mano y como `agent`:
-  1. git clone del fork (token de GitHub de grano fino: solo ese repositorio, Contents + Pull requests, sin Workflows).
+  1. git clone del repo en tu Forgejo (token propio: solo ese repositorio; lectura/escritura de código y pull requests, sin administración).
   2. cd proxmox-gui/backend && uv venv --python 3.12 && uv pip install -r requirements.lock && uv pip install pytest pytest-asyncio respx ruff mypy pip-audit bandit
      cd ../frontend && pnpm install --frozen-lockfile
      (y poner backend/.venv/bin en PATH para el orquestador)
   3. ~/.pgui-lab.env (modo 0600, ver docs/hardening/BRIEF-OPENCODE.md) y /etc/pgui-orch/secrets.env (ver docs/hardening/ORCHESTRATOR.md).
-  4. claude /login ; opencode auth login ; gh auth login (con el token del punto 1).
+  4. claude /login ; opencode auth login. El token de la forja va en /etc/pgui-orch/secrets.env como FORGEJO_TOKEN.
   5. python3 orchestrator/pgui_orch.py init && seal && dry-run
 MSG

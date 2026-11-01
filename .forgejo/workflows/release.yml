@@ -1,0 +1,73 @@
+name: release
+
+# Se empuja un tag vX.Y.Z -> se construye el tarball y se crea una release en BORRADOR en la forja. Aquí no se firma nada (D3):
+# el dueño baja SHA256SUMS, lo firma en local con scripts/release-sign.sh (la clave no sale de su equipo) y publica con
+# scripts/stage-release.sh en su origen de releases (R-28 … R-33). install.sh rechaza lo que no firme la clave que lleva dentro.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: pgui
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: Validate tag and signer configuration
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ && "$TAG" != *..* ]] || { echo "bad tag $TAG"; exit 1; }
+          if grep -q 'REEMPLAZAR-CON-TU-CLAVE-PUBLICA' deploy/release-signers; then
+            echo "deploy/release-signers still has the placeholder key; a release built now could not be installed"; exit 1
+          fi
+          if grep -q 'TODO-PIN' deploy/pins.env; then echo "deploy/pins.env has TODO-PIN"; exit 1; fi
+          scripts/sync-signers.sh --check
+      - name: Entorno (Python 3.12 y pnpm del runner)
+        run: |
+          uv venv --python 3.12 .ci-venv
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
+          corepack enable
+      - name: Tools
+        run: uv pip install uv cyclonedx-bom
+      - name: requirements.lock is current
+        run: scripts/update-lock.sh --check
+      - name: Build release artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/build-release.sh "$TAG" dist
+      - name: Self-check the tarball with the updater's own validator
+        run: |
+          python - <<'PY'
+          import glob, re
+          src = open("deploy/host-lxc/proxmox-gui-updater").read()
+          code = re.search(r"PYHELPER='\n(.*?)\n'\n", src, re.S).group(1)
+          open("/tmp/pyhelper.py", "w").write(code)
+          PY
+          python /tmp/pyhelper.py validate dist/proxmox-gui-*.tar.gz
+      - name: Create the DRAFT release (unsigned)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          api="$SERVER/api/v1/repos/$REPO"
+          id="$(curl -fsS -X POST "$api/releases" -H "Authorization: token $FORGE_TOKEN" -H 'Content-Type: application/json' \
+            -d "$(python3 -c 'import json,os,sys; t=os.environ["TAG"]; print(json.dumps({"tag_name": t, "name": t, "draft": True, "body": "DRAFT — not installable until SHA256SUMS.sig exists. Sign locally with scripts/release-sign.sh " + t + ", then run scripts/stage-release.sh."}))')" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          for f in dist/*; do
+            curl -fsS -X POST "$api/releases/$id/assets?name=$(basename "$f")" -H "Authorization: token $FORGE_TOKEN" -F "attachment=@$f" >/dev/null
+          done

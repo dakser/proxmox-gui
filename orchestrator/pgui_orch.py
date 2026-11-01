@@ -46,7 +46,7 @@ PROTECTED = ("tests/acceptance/", "backend/tests/acceptance/", "frontend/tests/a
              "deploy/tests/acceptance/", "lab/scenarios/", "gates.toml")
 # Kit: lo cambia solo el humano con un commit "KIT: ..." (misma lista que scripts/lock_check.py y .claude/hooks/guard.py).
 FROZEN = ("docs/spec/", "docs/plan.md", "orchestrator/", ".claude/", ".opencode/", "opencode.json",
-          "AGENTS.md", "CLAUDE.md", "Makefile", ".github/", ".gitleaks.toml",
+          "AGENTS.md", "CLAUDE.md", "Makefile", ".github/", ".forgejo/", ".gitleaks.toml",
           "scripts/gate.py", "scripts/gate_selftest.py", "scripts/lock_check.py", "scripts/accept_check.py",
           "scripts/accept_check_selftest.py", "scripts/guard_selftest.py", "scripts/release-sign.sh",
           "deploy/release-signers", "lab/lib.sh", "lab/run.sh", "lab/selftest.sh", "lab/selftest/",
@@ -188,6 +188,26 @@ class Orchestrator:
         except subprocess.TimeoutExpired:
             return False, f"TIMEOUT tras {timeout} s: {cmd}"
 
+    def forge(self):
+        """Cliente de la forja (Forgejo). Se crea al primer uso; el token sale de [secrets] (FORGEJO_TOKEN)."""
+        if getattr(self, "_forge", None) is None:
+            import forge as _forge
+            g = self.cfg["git"]
+            if "TODO" in g.get("forge_url", "") + g.get("forge_repo", ""):
+                raise Halt("[git] forge_url / forge_repo siguen con TODO en orchestrator.toml (checklist, paso de la forja)")
+            if not self.secrets().get("FORGEJO_TOKEN"):
+                raise Halt("falta FORGEJO_TOKEN en el archivo de [secrets]")
+            try:
+                self._forge = _forge.Forgejo(g.get("forge_url", ""), g.get("forge_repo", ""), self.secrets().get("FORGEJO_TOKEN", ""))
+            except _forge.ForgeError as e:
+                raise Halt(str(e)) from e
+        return self._forge
+
+    def push(self, branch: str, upstream: bool = True) -> tuple[bool, str]:
+        g = self.cfg["git"]
+        return self.sh(f"git push -q {'-u ' if upstream else ''}{g.get('remote', 'origin')} {shlex.quote(branch)}", timeout=300,
+                       env=self.forge().git_env(), with_secrets=True)
+
     def git(self, *args: str, check: bool = True) -> str:
         g = self.cfg["git"]
         env = {**os.environ, "GIT_AUTHOR_NAME": g["author_name"], "GIT_AUTHOR_EMAIL": g["author_email"],
@@ -234,7 +254,7 @@ class Orchestrator:
         branch = self.git("rev-parse", "--abbrev-ref", "HEAD", check=False).strip()
         if not branch or branch == g["main_branch"]:
             return  # nunca se empuja a la rama principal
-        ok, out = self.sh(f"git push -q -u {g.get('remote', 'origin')} {shlex.quote(branch)}", timeout=300, with_secrets=True)
+        ok, out = self.push(branch)
         if not ok:
             self.event(f"aviso: no pude empujar {branch}: {tail(out, 3).strip()}")
 
@@ -1245,16 +1265,14 @@ class Orchestrator:
             self.git("branch", br, g["main_branch"])
             self.event(f"rama de integración {br} creada desde {g['main_branch']}")
         if g.get("publish", True) and not self.state.get("pr_opened"):
-            self.sh(f"git push -q -u {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+            self.push(br)
             body = ("Integración autónoma de v0.1.1 (docs/plan.md). Cada fase aprobada por su puerta y su revisión se fusiona aquí; "
                     "este PR queda en borrador hasta que terminen todas. **No se fusiona solo.**")
             pr = ROOT / "reports" / "prompts" / "pr-integracion.md"
             pr.parent.mkdir(parents=True, exist_ok=True)
             pr.write_text(body)
-            ok, out = self.sh(f"gh pr create --draft --base {g['main_branch']} --head {br} --title "
-                              f"{shlex.quote('feat: v0.1.1 (integración autónoma)')} --body-file {shlex.quote(str(pr))}",
-                              timeout=300, with_secrets=True)
-            self.event("PR en borrador: " + (tail(out, 2).strip() if ok else "no se pudo abrir (¿ya existe?): " + tail(out, 3)))
+            ok, out = self.forge().pr_create_draft(g["main_branch"], br, "feat: v0.1.1 (integración autónoma)", body)
+            self.event("PR en borrador: " + (out if ok else "no se pudo abrir (¿ya existe?): " + out))
             self.state["pr_opened"] = True
             self.save()
 
@@ -1266,7 +1284,7 @@ class Orchestrator:
         self.git("checkout", "-q", br)
         self.git("merge", "-q", "--no-ff", f"fase/{phase}", "-m", f"Fase {phase} aprobada por puerta y revisión")
         if g.get("publish", True):
-            ok, out = self.sh(f"git push -q -u {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+            ok, out = self.push(br)
             if not ok:
                 raise Halt(f"no pude empujar {br}: {tail(out, 5)}")
 
@@ -1279,17 +1297,14 @@ class Orchestrator:
         for rnd in range(lim["gate_fix_rounds"] + 1):
             sha = self.git("rev-parse", "HEAD").strip()
             deadline = time.time() + int(g.get("ci_timeout_min", 45)) * 60
-            verdict, run_id = "pending", ""
+            verdict, detail = "pending", []
             while time.time() < deadline:
-                ok, out = self.sh(f"gh run list --branch {shlex.quote(br)} --commit {sha} --json databaseId,status,conclusion",
-                                  timeout=120, with_secrets=True)
                 try:
-                    runs = json.loads(out.strip().splitlines()[-1]) if ok and out.strip() else []
-                except (json.JSONDecodeError, IndexError):
-                    runs = []
-                if runs and all(r.get("status") == "completed" for r in runs):
-                    bad = [r for r in runs if r.get("conclusion") not in ("success", "skipped", "neutral")]
-                    verdict, run_id = ("failure", str(bad[0]["databaseId"])) if bad else ("success", "")
+                    verdict, detail = self.forge().ci_state(sha)
+                except Exception as e:  # la forja puede reiniciarse: se reintenta hasta el plazo
+                    self.event(f"aviso: no pude consultar el CI: {e}")
+                    verdict, detail = "pending", []
+                if verdict != "pending":
                     break
                 time.sleep(30)
             if verdict == "success":
@@ -1300,13 +1315,14 @@ class Orchestrator:
                 return
             if rnd == lim["gate_fix_rounds"]:
                 raise Halt(f"el CI de {br} sigue en rojo tras {phase} ({lim['gate_fix_rounds']} rondas de corrección)")
-            ok, log = self.sh(f"gh run view {shlex.quote(run_id)} --log-failed", timeout=300, with_secrets=True)
             self.git("checkout", "-q", f"fase/{phase}")
-            self.fix_session(phase, f"{phase}.CI{rnd + 1}", "El CI de GitHub falló sobre la integración:\n" + tail(log, 150))
+            ok, local = self.sh(f"python3 scripts/gate.py {phase}", timeout=3600)
+            self.fix_session(phase, f"{phase}.CI{rnd + 1}", "El CI de la forja falló sobre la integración:\n" + "\n".join(detail)
+                             + "\n\nReproducción local de la puerta de regresión:\n" + tail(local, 120))
             # La corrección vive en la rama de la fase; se integra de nuevo.
             self.git("checkout", "-q", br)
             self.git("merge", "-q", "--no-ff", f"fase/{phase}", "-m", f"Fase {phase}: corrección del CI")
-            self.sh(f"git push -q {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+            self.push(br, upstream=False)
 
     def finish(self) -> None:
         """Todas las fases integradas: marca el PR como listo y avisa lo que queda para el humano."""
@@ -1315,7 +1331,9 @@ class Orchestrator:
         todo = (f"Falta el nivel 2 de {', '.join(deferred)}: ejecuta docs/hardening/LAB-RC.md en prox-t1, deja reports/lab2/<fase>.json "
                 "(commit `KIT: nivel 2`) y firma la release. " if deferred else "")
         if not self.dry and g.get("publish", True):
-            self.sh(f"gh pr ready {shlex.quote(br)}", timeout=120, with_secrets=True)
+            ok, out = self.forge().pr_ready(br)
+            if not ok:
+                self.event(f"aviso: no pude marcar el PR como listo: {out}")
         self.notify(f"v0.1.1 lista en {br} (PR listo hacia {g['main_branch']}). {todo}Gasto total "
                     f"{self.state['spend']['total']:.2f} USD.")
 

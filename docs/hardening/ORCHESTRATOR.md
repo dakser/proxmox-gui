@@ -12,14 +12,14 @@ En el LXC dedicado, como usuario `agent`, tras `orchestrator/setup-lxc.sh`:
 |---|---|---|
 | Aviso al celular | `[notify] command` de `orchestrator/orchestrator.toml` | Se ejecuta con el mensaje en `$PGUI_MSG` (nunca interpolado). Vacío = solo registro en `orchestrator/logs/`. |
 | Snapshot antes de cada fase | `[snapshot] command` | **Vacío (decisión X25)**: no se da ningún token de Proxmox al LXC. Si quieres puntos de restauración, toma tú el snapshot desde Proxmox, o programa un backup del CT en Proxmox. El código está a salvo porque se empuja tras cada commit. |
-| Secretos del orquestador | `/etc/pgui-orch/secrets.env` (`root:agent`, 0640) | `KEY=VALUE`. Llega solo a `[notify]`, `[snapshot]` y a los comandos `git push`/`gh` del orquestador, nunca a `make check` ni a los agentes (que además tienen vetada la ruta). |
+| Secretos del orquestador | `/etc/pgui-orch/secrets.env` (`root:agent`, 0640) | `KEY=VALUE`. Llega solo a `[notify]`, `[snapshot]` y a `git push` y a la API de la forja, nunca a `make check` ni a los agentes (que además tienen vetada la ruta). |
 | Claves de modelos | `OPENROUTER_API_KEY` (clave propia del proyecto, con tope de gasto) en el entorno de `agent`; `opencode auth login`; `claude /login` | No van en ningún archivo del repo. |
 | Credenciales de laboratorio | `~/.pgui-lab.env` (0600) | Formato en `BRIEF-OPENCODE.md` §1. Solo `lab/lib.sh` las lee. |
-| GitHub | `gh auth login` con token de grano fino (solo el fork; Contents RW, Pull requests RW, Actions R, Metadata R; sin Workflows) | Sirve a `git push` y `gh pr create` del orquestador. |
+| Forja | `FORGEJO_TOKEN` en `secrets.env` (usuario `pgui-orch`, solo ese repo; `write:repository`, `write:issue`) | Sirve a `git push`, al PR en borrador y al estado del CI. Ver `FORGEJO.md`. |
 
 Límite honesto: el usuario `agent` ejecuta tanto al orquestador como a los agentes, así que `/etc/pgui-orch/secrets.env` es
 legible para el proceso de un agente. Las guardas lo vetan (heurística, no frontera). La frontera real son los **alcances** de
-cada credencial: token de GitHub limitado al fork y sin `Workflows`, clave de OpenRouter con tope, token de laboratorio de Proxmox propio (`pgui-lab-agent@pve!dev`) y sin snapshots.
+cada credencial: token de la forja limitado a ese repositorio, clave de OpenRouter con tope, token de laboratorio de Proxmox propio (`pgui-lab-agent@pve!dev`) y sin snapshots.
 
 ## Puesta en marcha
 
@@ -34,7 +34,7 @@ python3 orchestrator/pgui_orch.py once F1.2  # una sola tarea (depurar) ; reset 
 ```
 
 Ciclo normal: `run` encadena todas las fases solo. Cada fase aprobada (puerta, revisión, `lock-check`) se fusiona en
-`integracion/v0.1.1` —nunca en `master`—, se empuja y espera el CI de GitHub (si falla, el implementador lo corrige). El PR
+`integracion/v0.1.1` —nunca en `master`—, se empuja y espera el CI de Forgejo Actions (si falla, el implementador lo corrige). El PR
 `integracion/v0.1.1` → `master` nace en borrador y pasa a listo al terminar. Se detiene solo ante un bloqueo real; relanzar `run`
 retoma donde quedó. Los pasos de nivel 2 (F3 y F4: instalador y actualización en el LXC 200) no detienen nada: quedan
 anotados y, al final, el aviso lista lo que falta. Entonces ejecutas `docs/hardening/LAB-RC.md` de una vez, dejas

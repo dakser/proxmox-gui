@@ -37,3 +37,12 @@ Las decisiones D1–D12 del registro de `PLAN.md` se aplican tal cual (todas `[R
 - Independencia de GitHub solo en la **distribución**: instalador, updater y aviso de versión usan un origen de releases propio
   (R-28 … R-33, tareas F3.6 – F3.8). El código y el CI siguen en GitHub privado; el orquestador mantiene `gh`.
 - La firma de release sigue siendo la única ancla de confianza; `latest.json` firmado añade protección contra rollback.
+
+## X28 — Independencia total de GitHub: Forgejo propio con CI (DECISIÓN HUMANA, sustituye el alcance de X27)
+
+- Alcance C: código, PR y CI en un Forgejo propio (CT nuevo `pgui-forge`, con runner en modo host), además de la distribución
+  de X27. El repo de GitHub no se toca hasta que él decida; el repo privado de GitHub ya no se crea.
+- CI portado a `.forgejo/workflows/` sin acciones de terceros; `.github/` y Dependabot se eliminan. El orquestador deja `gh`
+  y usa la API de Forgejo (`orchestrator/forge.py`, autoprueba con un servidor falso). Sigue siendo externo: registros de
+  paquetes, descargas del toolchain fijadas por hash, modelos de IA y el catálogo opcional de community-scripts.
+- Sin probar contra un Forgejo real; se comprueba en la primera corrida (`once F0.1`) y el primer push al CI.

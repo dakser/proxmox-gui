@@ -5,7 +5,7 @@ Reglas que no se negocian:
 - Lee solo la tarea, las reglas R-xx que cita (docs/spec/v0.1.1.md) y la sección de la fase en docs/plan.md. El inventario con la
   evidencia de cada hallazgo está en docs/hardening/V0.1.1-PLAN.md.
 - No modificas pruebas de aceptación (backend|frontend|deploy tests/acceptance, tests/acceptance), lab/, gates.toml, docs/spec/,
-  docs/plan.md, Makefile, .github/, scripts del kit, orchestrator/, .claude/, .opencode/ ni opencode.json. Si crees que una
+  docs/plan.md, Makefile, .forgejo/, scripts del kit, orchestrator/, .claude/, .opencode/ ni opencode.json. Si crees que una
   prueba está mal, NO la cambies: escribe `CULPA: prueba` en una línea, explícalo en docs/hardening/DECISIONS.md como
   PROVISIONAL y haz que el código cumpla la especificación.
 - No haces commits, no cambias de rama, no abres PR ni usas gh para escribir: el orquestador lo hace al verificar tu trabajo.

@@ -1,0 +1,171 @@
+name: ci
+
+# Forgejo Actions. Sin acciones de terceros: el runner (modo host) ya trae las herramientas; ver docs/hardening/FORGEJO.md.
+# El orquestador espera el estado de este CI sobre la rama de integración (push), por eso no se repite en pull_request.
+
+on:
+  push:
+    branches: [master, "integracion/**"]
+
+jobs:
+  shell:
+    runs-on: pgui
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: shellcheck + bash -n
+        run: |
+          mapfile -t files < <(grep -rIl --exclude-dir=node_modules --exclude-dir=.git '^#!/usr/bin/env bash\|^#!/bin/bash' deploy scripts orchestrator | sort -u)
+          for f in "${files[@]}"; do bash -n "$f"; done
+          shellcheck -x "${files[@]}"
+      - name: gate syntax + signer sync + deploy script tests
+        env:
+          PGUI_ALLOW_PLACEHOLDERS: "1"
+        run: |
+          perl -c deploy/host/proxmox-gui-ssh-gate
+          scripts/sync-signers.sh --check
+          deploy/tests/run.sh
+
+  backend:
+    runs-on: pgui
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: Entorno (Python 3.12 y pnpm del runner)
+        run: |
+          uv venv --python 3.12 .ci-venv
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
+          corepack enable
+      - name: Install
+        working-directory: backend
+        run: |
+          uv pip install -e '.[mcp]' pytest 'pytest-asyncio==1.3.0' respx mypy 'ruff==0.15.12' uv
+      - name: requirements.lock is up to date and installs with hashes only
+        run: |
+          scripts/update-lock.sh --check
+          uv venv --python 3.12 /tmp/locktest
+          uv pip install --python /tmp/locktest/bin/python --quiet --require-hashes --only-binary=:all: -r backend/requirements.lock
+          uv pip install --python /tmp/locktest/bin/python --quiet --no-deps --no-build-isolation ./backend
+      - name: Lint, types and tests (ratchet vs. docs/hardening/BASELINE.md)
+        working-directory: backend
+        run: |
+          # shellcheck source=../scripts/baseline-counts.env
+          source ../scripts/baseline-counts.env
+          n="$(ruff check . --output-format=concise | grep -cE '^[^ ]+:[0-9]+:[0-9]+:' || true)"
+          echo "ruff errors: $n (max $RUFF_MAX)"; [ "$n" -le "$RUFF_MAX" ]
+          n="$(mypy --config-file mypy.ini app | grep -c ': error:' || true)"
+          echo "mypy errors: $n (max $MYPY_MAX)"; [ "$n" -le "$MYPY_MAX" ]
+          pytest -q
+
+  frontend:
+    runs-on: pgui
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: Entorno (Python 3.12 y pnpm del runner)
+        run: |
+          uv venv --python 3.12 .ci-venv
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
+          corepack enable
+      - name: Install, check, test, build
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm test
+          pnpm build
+
+  scans:
+    runs-on: pgui
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q  origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: Entorno (Python 3.12 y pnpm del runner)
+        run: |
+          uv venv --python 3.12 .ci-venv
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
+          corepack enable
+      - name: gitleaks (instalado y verificado por hash al preparar el runner)
+        run: gitleaks detect --source . --no-banner --redact --config .gitleaks.toml
+      - name: bandit + pip-audit
+        run: |
+          uv pip install bandit pip-audit uv
+          bandit -q -r backend/app --severity-level medium
+          pip-audit -r backend/requirements.lock --no-deps --disable-pip
+      - name: pnpm audit (production dependencies)
+        working-directory: frontend
+        run: pnpm audit --prod
+
+  smoke-systemd:
+    # Systemd real (contenedor Debian 12 en el Docker del runner), instalación real desde el tarball de la release, Redis/Caddy/unidades
+    # reales. Exige Docker en el runner (CT con nesting); ver docs/hardening/FORGEJO.md.
+    runs-on: pgui
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (sin acciones externas)
+        env:
+          FORGE_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          git init -q .
+          git remote add origin "$SERVER/$REPO.git"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $FORGE_TOKEN" GIT_TERMINAL_PROMPT=0
+          git fetch -q --depth 1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+          git remote set-url origin "$SERVER/$REPO.git"
+      - name: Entorno (Python 3.12 y pnpm del runner)
+        run: |
+          uv venv --python 3.12 .ci-venv
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
+          corepack enable
+      - name: Smoke test (builds the release tarball, installs it, checks the stack)
+        run: deploy/tests/smoke-systemd.sh --logs smoke-logs
+      - name: Logs (se conservan en el runner si falla)
+        if: failure()
+        run: ls -la smoke-logs/ || true

@@ -30,7 +30,7 @@ credenciales) y `docs/hardening/V0.1.1-PLAN.md` (inventario de hallazgos con su 
 9. **Culpa explícita.** Si el agente cree que falla la prueba y no el código, lo dice en una línea marcada
    (`CULPA: prueba`), nunca en prosa. Las pruebas de aceptación no las toca el implementador.
 10. **Roles separados.** El implementador no modifica las pruebas de aceptación (`backend|frontend|deploy tests/acceptance`,
-    `tests/acceptance`), `lab/`, `gates.toml`, `docs/spec/`, `docs/plan.md`, `Makefile`, `.github/` ni el kit. El autor de pruebas
+    `tests/acceptance`), `lab/`, `gates.toml`, `docs/spec/`, `docs/plan.md`, `Makefile`, `.forgejo/` ni el kit. El autor de pruebas
     solo escribe pruebas de aceptación y escenarios de laboratorio. Los revisores no modifican código: solo escriben su informe.
 
 ## Reglas propias de este proyecto

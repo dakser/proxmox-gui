@@ -1,45 +1,49 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Workflow hygiene (P0-06/P6-02): every action pinned by a 40-hex SHA, least-privilege permissions,
-# credentials not persisted, and the release workflow never signs or holds write access while building.
+# Workflow hygiene (P0-06/P6-02, L-18/X28): CI and release live in .forgejo/workflows, use NO third-party actions and no GitHub
+# URLs; the release workflow builds without any token and only the last step gets the forge token; it never signs.
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 setup_env
-WF="$REPO_DIR/.github/workflows"
+WF="$REPO_DIR/.forgejo/workflows"
 
-test_case "every 'uses:' is pinned to a full commit SHA"
-while IFS= read -r line; do
-    if [[ "$line" =~ uses:\ [^@]+@[0-9a-f]{40}([[:space:]]|$) ]]; then _report ok; else _report FAIL "unpinned action: $line"; fi
-done < <(grep -hE '^\s*-?\s*uses:' "$WF"/*.yml)
+test_case "the old GitHub workflow directory is gone"
+if [[ -e "$REPO_DIR/.github" ]]; then _report FAIL ".github/ still exists"; else _report ok; fi
 
-test_case "top-level permissions are restricted; checkouts do not persist credentials"
+test_case "no workflow uses an external action (uses:) nor mentions github.com"
+if grep -hE '^\s*-?\s*uses:' "$WF"/*.yml >/dev/null 2>&1; then _report FAIL "a workflow uses 'uses:'"; else _report ok; fi
+if grep -qiE 'github\.com|githubusercontent|api\.github' "$WF"/*.yml; then _report FAIL "workflow mentions GitHub"; else _report ok; fi
+
+test_case "every job runs on the self-hosted runner label and checks out without persisting credentials"
 for f in "$WF"/*.yml; do
-    if grep -qE '^permissions:\s*(\{\}|$)' "$f" || grep -qE '^permissions:$' "$f"; then _report ok; else _report FAIL "$(basename "$f"): no restrictive top-level permissions"; fi
-    n_checkout="$(grep -c 'actions/checkout@' "$f" || true)"
-    n_nopersist="$(grep -c 'persist-credentials: false' "$f" || true)"
-    assert_eq "$n_checkout" "$n_nopersist" "$(basename "$f"): every checkout sets persist-credentials: false"
+    n_jobs="$(grep -cE '^    runs-on:' "$f" || true)"
+    n_pgui="$(grep -cE '^    runs-on: pgui$' "$f" || true)"
+    assert_eq "$n_jobs" "$n_pgui" "$(basename "$f"): all jobs run on label pgui"
+    n_co="$(grep -c 'Checkout (sin acciones externas)' "$f" || true)"
+    assert_eq "$n_co" "$n_jobs" "$(basename "$f"): every job checks out explicitly"
+    assert_contains "$(cat "$f")" 'git remote set-url origin "$SERVER/$REPO.git"' "$(basename "$f"): checkout leaves no token in the remote"
 done
 
-test_case "the release workflow: read-only build job, write only in the publish job, never signs"
+test_case "the release workflow: tag-triggered, token only in the last step, never signs"
 r="$(grep -vE "^[[:space:]]*#" "$WF/release.yml")"
-assert_contains "$r" "push:" "triggered by a tag push"
 assert_contains "$r" 'tags: ["v*"]' "only v* tags"
-build_block="$(sed -n '/^  build:/,/^  draft-release:/p' "$WF/release.yml")"
-assert_not_contains "$build_block" "contents: write" "build job has no write access"
-assert_not_contains "$build_block" "GH_TOKEN" "build job has no token"
-assert_contains "$(sed -n '/^  draft-release:/,$p' "$WF/release.yml")" "contents: write" "publish job has write access"
-assert_contains "$r" "--draft" "release is created as a draft"
+before_draft="$(sed -n '/Create the DRAFT release/q;p' "$WF/release.yml")"
+after_checkout="$(printf '%s\n' "$before_draft" | sed -n '/Validate tag and signer configuration/,$p')"
+assert_not_contains "$after_checkout" "FORGE_TOKEN" "no token while building"
+assert_contains "$(sed -n '/Create the DRAFT release/,$p' "$WF/release.yml")" "FORGE_TOKEN" "the draft step has the forge token"
+assert_contains "$r" '"draft": True' "release is created as a draft"
 assert_not_contains "$r" "ssh-keygen -Y sign" "CI never signs (D3)"
 assert_not_contains "$r" "secrets." "no secrets used"
-assert_contains "$r" "pnpm/action-setup" "pnpm installed"
 assert_contains "$r" "build-release.sh" "uses the shared build script"
 
-test_case "ci.yml security scans are blocking (P6-06)"
+test_case "ci.yml security scans are blocking (P6-06) and CI runs on integration branches"
 c="$(grep -vE "^[[:space:]]*#" "$WF/ci.yml")"
 assert_not_contains "$c" "continue-on-error" "no continue-on-error anywhere in ci.yml"
 assert_contains "$c" "bandit" "bandit runs"
 assert_contains "$c" "pip-audit" "pip-audit runs"
 assert_contains "$c" "pnpm audit" "pnpm audit runs"
+assert_contains "$c" 'gitleaks detect' "gitleaks runs"
+assert_contains "$c" '"integracion/**"' "push to integration branches triggers CI"
 
 finish

@@ -29,6 +29,7 @@ CASES = [  # (rol, herramienta, entrada, bloquea?)
     ("implementer", "Write", {"file_path": "reports/lab2/F3.json"}, True),
     ("test_author", "Write", {"file_path": "reports/lab2/F3.json"}, True),
     ("implementer", "Write", {"file_path": ".github/workflows/ci.yml"}, True),
+    ("implementer", "Write", {"file_path": ".forgejo/workflows/ci.yml"}, True),
     ("implementer", "Write", {"file_path": "deploy/release-signers"}, True),
     ("implementer", "Write", {"file_path": "../../../../../../../../var/lib/outside.txt"}, True),
     ("implementer", "Write", {"file_path": "/etc/passwd"}, True),
