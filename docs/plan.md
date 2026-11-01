@@ -62,7 +62,7 @@ Línea base: la suite existente completa entra en todas las puertas como regresi
     Falla si hace falta cualquier privilegio no documentado (R-15).
 - **Salida:** con el rol documentado, el flujo completo funciona en `prox-t1`. Reglas: R-13 … R-19.
 
-## F3 — Instalador y empaquetado (L-10, L-11, L-13, L-14, L-15, L-16)
+## F3 — Instalador y empaquetado (L-10, L-11, L-13, L-14, L-15, L-16, L-18)
 
 - **Leer:** `deploy/install.sh`, `deploy/lxc/bootstrap.sh`, `deploy/caddy/Caddyfile.template`, `scripts/build-release.sh`,
   `backend/app/setup/routes.py`.
@@ -70,13 +70,22 @@ Línea base: la suite existente completa entra en todas las puertas como regresi
   del panel SSH; tarball solo con dependencias de ejecución.
 - **Pruebas:** `deploy/tests/acceptance/test_install_no_sshd.sh` (R-21), `backend/tests/acceptance/test_setup_token.py`
   (`test_setup_token_removed_after_admin`, R-22), `deploy/tests/acceptance/test_bootstrap_locale_and_caddy.sh` (R-23),
-  `deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh` (R-24). Mutación de
+  `deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh` (R-24); más las de L-18 (abajo). Mutación de
   cada una: revertir el cambio → debe fallar.
-- **Salida:** `smoke-systemd` en verde con las pruebas nuevas; nivel 2 (humano) en el LXC 200. Reglas: R-21 … R-24, R-25.
+  - **L-18 (origen de releases propio, R-28 … R-33):** `deploy/tests/acceptance/test_installer_uses_release_base.sh` (con un `curl`
+    falso que registra las URL: con `--release-base` ninguna va a `github.com`; mutación: volver a `DEFAULT_REPO_URL`),
+    `test_installer_requires_release_base.sh` (sin origen definido se detiene con mensaje claro; mutación: caer a `github.com`),
+    `test_updater_uses_release_base_and_rejects_bad_manifest.sh` (acepta un origen válido y rechaza firma inválida, versión menor y
+    hash que no coincide, sin tocar la instalación; mutación: no verificar la firma de `latest.json`),
+    `backend/tests/acceptance/test_selfupdate_manifest.py` (`test_selfupdate_reads_release_manifest`: lee `latest.json`, no llama a
+    `api.github.com`; mutación: volver a la API de GitHub), `test_stage_release_layout.sh` (el script produce la estructura de R-29
+    con `latest.json.sig`; mutación: omitir `latest.json.sig`) y `test_no_github_release_urls_in_runtime.sh` (R-32; mutación:
+    reintroducir una URL de release de GitHub en el instalador).
+- **Salida:** `smoke-systemd` en verde con las pruebas nuevas; nivel 2 (humano) en el LXC 200. Reglas: R-21 … R-24, R-25, R-28 … R-33.
 
 ## F4 — Release v0.1.1
 
-- **Tareas:** alinear la versión (el paquete declara `0.6.3` en `backend/pyproject.toml` y `frontend/package.json`, y `/api/v1/health` lo
+- **Tareas:** las pruebas de actualización usan un origen de releases propio (`python3 -m http.server` sobre la estructura de R-29), no GitHub. Alinear la versión (el paquete declara `0.6.3` en `backend/pyproject.toml` y `frontend/package.json`, y `/api/v1/health` lo
   reporta, mientras la release del fork es `v0.1.0`; el archivo `VERSION` del tarball lleva la etiqueta); `CHANGELOG.md`; prerelease `v0.1.1-rc1` firmada por el humano; pruebas de
   actualización v0.1.0 → rc1 (éxito) y con una release rota a propósito (rollback); firma inválida rechazada.
 - **Salida:** regla R-26 y R-27 verificadas en el laboratorio; humano publica `v0.1.1`.

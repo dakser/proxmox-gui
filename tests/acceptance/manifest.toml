@@ -302,3 +302,63 @@ files = ["deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh"]
 rules = ["R-24"]
 proves = "El tarball no incluye vite, typescript ni tailwindcss y pesa menos que el de v0.1.0 medido en la misma corrida"
 mutation = "Volver a incluir frontend/node_modules completo"
+
+[[test]]
+name = "test_installer_uses_release_base"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_installer_uses_release_base.sh"]
+rules = ["R-28", "R-33"]
+proves = "Con --release-base, el instalador descarga todo de ese origen y ninguna URL va a github.com"
+mutation = "Volver a DEFAULT_REPO_URL de GitHub"
+
+[[test]]
+name = "test_installer_requires_release_base"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_installer_requires_release_base.sh"]
+rules = ["R-28"]
+proves = "Sin ningún origen definido, el instalador se detiene con un mensaje claro y no intenta github.com"
+mutation = "Caer a github.com cuando no hay origen"
+
+[[test]]
+name = "test_updater_uses_release_base_and_rejects_bad_manifest"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_updater_uses_release_base_and_rejects_bad_manifest.sh"]
+rules = ["R-29", "R-30", "R-33"]
+proves = "El updater acepta un origen válido y rechaza firma inválida de latest.json, versión menor que la instalada y hash de SHA256SUMS que no coincide, sin tocar la instalación"
+mutation = "No verificar la firma de latest.json"
+
+[[test]]
+name = "test_selfupdate_reads_release_manifest"
+task = "F3.7"
+phase = "F3"
+kind = "py"
+files = ["backend/tests/acceptance/test_selfupdate_manifest.py"]
+rules = ["R-31"]
+proves = "El aviso de versión nueva lee latest.json del origen configurado, informa y no llama a api.github.com"
+mutation = "Volver a consultar la API de releases de GitHub"
+
+[[test]]
+name = "test_stage_release_layout"
+task = "F3.8"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_stage_release_layout.sh"]
+rules = ["R-29", "R-30"]
+proves = "scripts/stage-release.sh produce la estructura de R-29 con latest.json y latest.json.sig verificable con la clave de prueba"
+mutation = "Omitir latest.json.sig"
+
+[[test]]
+name = "test_no_github_release_urls_in_runtime"
+task = "F3.8"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_no_github_release_urls_in_runtime.sh"]
+rules = ["R-32"]
+proves = "Ningún archivo de ejecución contiene URLs de releases de GitHub (se exceptúan community-scripts y deploy/pins.env)"
+mutation = "Reintroducir una URL de release de GitHub en install.sh"

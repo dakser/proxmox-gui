@@ -130,6 +130,27 @@ role = "implementer"
 acceptance = true
 
 [[task]]
+id = "F3.6"
+phase = "F3"
+title = "Instalador y updater con origen de releases configurable (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.7"
+phase = "F3"
+title = "Aviso de versión nueva desde latest.json del origen (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.8"
+phase = "F3"
+title = "scripts/stage-release.sh y sin URL de releases de GitHub en el código de ejecución (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
 id = "F4.1"
 phase = "F4"
 title = "Alinear versión, CHANGELOG y guion de actualización/rollback LAB-RC.md"
