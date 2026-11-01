@@ -118,16 +118,16 @@ Adicionales (X1–X17, en el orden de `DECISIONS.md`; las más impactantes: X7 c
 - Toolchain (Node/Python) fijado por SHA-256 pero descargado de sus orígenes en la instalación; el updater no lo actualiza (X14).
 - El build de Vite no es reproducible (X17).
 - Lo de §3.4 "NO verificado": comportamientos dependientes de PVE/LXC reales pueden requerir relajar una directiva de sandboxing concreta.
-- Dependencias de desarrollo con 7 avisos que no viajan en la release.
+- Dependencias de desarrollo con 7 avisos (vitest/js-yaml) que **no** viajan en la release. Matiz (N-1 de `REVIEW-FINAL.md`): el tarball sí lleva `frontend/node_modules` (~227 MB descomprimido, 24.436 ficheros) con herramientas de build como `vite`, `typescript` y `tailwindcss`, que llegan como cierre transitivo de producción de `@sveltejs/kit`. No se ejecutan en runtime, pero un CVE en ellas aparecería instalado en cada LXC (y `pnpm audit --prod` sí lo detectaría). Tarea abierta para v0.1.1.
 
 ## 7. Lo que debes hacer tú
 1. **Clave de firma de releases (D2/D3).** Genera `ssh-keygen -t ed25519 -f ~/.ssh/proxmox-gui-release`, pon la línea pública en `deploy/release-signers` (formato `proxmox-gui-release namespaces="proxmox-gui-release" ssh-ed25519 AAAA…`) y ejecuta `scripts/sync-signers.sh`. Hasta entonces `install.sh` se niega a instalar y `scripts/check.sh` falla (salvo `PGUI_ALLOW_PLACEHOLDERS=1`).
 2. **Fork.** `scripts/set-fork.sh dakser/proxmox-gui` ya está aplicado; verifica con el `grep` de P6-04 (`docs/hardening/PLAN.md`) que no queda ninguna URL del autor original.
-3. **Ajustes de GitHub (no se pueden hacer desde el repo):** activar 2FA en tu cuenta; proteger `main` (PR obligatorio, checks `shell`, `backend`, `frontend`, `scans`, `smoke-systemd` requeridos, sin force-push); activar Dependabot alerts y security updates; en *Settings → Actions → General* poner permisos del `GITHUB_TOKEN` en solo lectura y exigir aprobación para workflows de forks.
+3. **Ajustes de GitHub (no se pueden hacer desde el repo):** activar 2FA en tu cuenta; proteger `master`, la rama por defecto del fork (PR obligatorio, checks `shell`, `backend`, `frontend`, `scans`, `smoke-systemd` requeridos, sin force-push); activar Dependabot alerts y security updates; en *Settings → Actions → General* poner permisos del `GITHUB_TOKEN` en solo lectura y exigir aprobación para workflows de forks.
 4. **Primera release.** Tras el punto 1: `git tag v0.1.0 && git push origin v0.1.0`; el workflow `release.yml` deja un borrador con tarball, `install.sh` y `SHA256SUMS`; fírmalo con `scripts/release-sign.sh v0.1.0 --publish` (re-comprueba los hashes antes de firmar).
 5. **Validación en laboratorio** con `docs/hardening/LAB-CHECKLIST.md` (PVE anidado, snapshot previo). Es lo único que verifica lo que CI no puede: `pct create` con plantillas, `pct exec` real, MemoryDenyWriteExecute/RestrictAddressFamilies en Node, PrivateDevices en LXC sin privilegios, `from=` con IP real, rollback real.
 6. **Revisar las decisiones marcadas `[REVISAR]`** en `DECISIONS.md` (D1–D12 y X1–X17) y confirmarlas o cambiarlas.
-7. **Dependencias:** 7 avisos de `pnpm audit` en dependencias de desarrollo (vitest/js-yaml; no viajan en la release) y los avisos de Dependabot futuros; `requirements.lock`/`pnpm-lock` se regeneran con `scripts/update-lock.sh` y se revisan a mano.
+7. **Dependencias:** 7 avisos de `pnpm audit` en dependencias de desarrollo (vitest/js-yaml; no viajan en la release, a diferencia de `vite`/`typescript`/`tailwindcss`, ver §6) y los avisos de Dependabot futuros; `requirements.lock`/`pnpm-lock` se regeneran con `scripts/update-lock.sh` y se revisan a mano.
 
 ## 8. Cómo instalar
 Con `deploy/release-signers` ya con tu clave y la release firmada (pasos 1–4 de §7), en el nodo PVE (primero en laboratorio, con snapshot):
@@ -142,3 +142,9 @@ less install.sh                       # léelo antes de ejecutarlo
 bash install.sh --release $V          # sin --enable-community-scripts por defecto
 ```
 `allowed-signers` es tu clave pública (la misma línea que `deploy/release-signers`). Con community-scripts: añade `--enable-community-scripts`. Actualizar: `bash install.sh --update --ctid <id> --release <vX.Y.Z>`. Desinstalar: `bash install.sh --uninstall [--purge] --ctid <id>`. Detalle en `deploy/README.md`.
+
+## 9. Después de publicar v0.1.0
+- `v0.1.0` publicada y firmada; la firma se verificó desde un entorno limpio (firma, hash de `install.sh` y del tarball, y rechazo de un `SHA256SUMS` alterado).
+- Revisión independiente final (Claude Code, solo lectura): `docs/hardening/REVIEW-FINAL.md`. Sin hallazgos de severidad Alta; N-1 (Baja) abierto.
+- **Pendiente:** validación en laboratorio (`LAB-CHECKLIST.md`, guía en `LAB-NESTED.md`), ajustes de GitHub y limpieza de ramas ya fusionadas.
+- **Candidato a v0.1.1:** reducir `frontend/node_modules` en el tarball (N-1) y registrar clústeres siempre con huella de certificado.
