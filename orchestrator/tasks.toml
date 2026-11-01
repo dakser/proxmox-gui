@@ -1,0 +1,158 @@
+# Tareas de v0.1.1 en orden (docs/plan.md). Solo el humano lo cambia.
+# role: implementer | test_author. acceptance = true: el autor de pruebas escribe antes las pruebas de la tarea
+# (las que el manifiesto tests/acceptance/manifest.toml asigna a esa fase). Las tareas test_author sin acceptance
+# escriben escenarios de laboratorio (lab/scenarios/). Cada tarea es un PR (L-xx) hacia master.
+
+[[task]]
+id = "F0.1"
+phase = "F0"
+title = "Fecha de corte de --exclude-newer y lock regenerado (L-00)"
+role = "implementer"
+acceptance = false
+
+[[task]]
+id = "F0.2"
+phase = "F0"
+title = "Evaluar cada CVE y registrarlo en SCANS-FINAL.md (L-00)"
+role = "implementer"
+acceptance = false
+
+[[task]]
+id = "F1.0"
+phase = "F1"
+title = "Escenario de laboratorio f1_new_user_can_provision"
+role = "test_author"
+acceptance = false
+
+[[task]]
+id = "F1.1"
+phase = "F1"
+title = "Renovación de sesión desde el servidor (L-01)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F1.2"
+phase = "F1"
+title = "Bootstrap al crear usuario o equipo, limpieza y botón de reparación (L-02)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F1.3"
+phase = "F1"
+title = "Asistente: equipo por defecto, botón con razón, detalle de errores (L-03)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F1.4"
+phase = "F1"
+title = "Pestaña de miembros del equipo (L-09)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F1.5"
+phase = "F1"
+title = "Sin peticiones fallidas en /setup y /login (L-12)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F2.0"
+phase = "F2"
+title = "Escenarios de laboratorio f2_networks_listed y f2_full_provision"
+role = "test_author"
+acceptance = false
+
+[[task]]
+id = "F2.1"
+phase = "F2"
+title = "Redes: registrar fallos de lectura, distinguir vacío de error, rol documentado con SDN.Use (L-04, L-05)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F2.2"
+phase = "F2"
+title = "Registrar el fallo de aprovisionamiento al registrar clúster (L-06)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F2.3"
+phase = "F2"
+title = "Huella y verificación TLS (L-07, L-16)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F2.4"
+phase = "F2"
+title = "Mensaje de destino no permitido (L-08)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.1"
+phase = "F3"
+title = "Instalador: sshd deshabilitado sin community-scripts (L-10)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.2"
+phase = "F3"
+title = "Invalidar el token de setup tras crear el administrador (L-11)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.3"
+phase = "F3"
+title = "Locale y skip_install_trust de Caddy (L-13)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.4"
+phase = "F3"
+title = "Texto del panel SSH trust (L-14)"
+role = "implementer"
+acceptance = false
+
+[[task]]
+id = "F3.5"
+phase = "F3"
+title = "Tarball solo con dependencias de ejecución (L-15)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.6"
+phase = "F3"
+title = "Instalador y updater con origen de releases configurable (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.7"
+phase = "F3"
+title = "Aviso de versión nueva desde latest.json del origen (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F3.8"
+phase = "F3"
+title = "scripts/stage-release.sh y sin URL de releases de GitHub en el código de ejecución (L-18)"
+role = "implementer"
+acceptance = true
+
+[[task]]
+id = "F4.1"
+phase = "F4"
+title = "Alinear versión, CHANGELOG y guion de actualización/rollback LAB-RC.md"
+role = "implementer"
+acceptance = false

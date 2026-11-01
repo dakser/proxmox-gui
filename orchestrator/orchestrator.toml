@@ -1,0 +1,108 @@
+# Configuración del orquestador de proxmox-gui (docs/plan.md). Ajusta y lanza:
+#   python3 orchestrator/pgui_orch.py init     (una vez, en el repositorio con docs/ y el kit)
+#   python3 orchestrator/pgui_orch.py run
+
+[agent]
+# Herramienta por rol. Reparto recomendado: OpenCode programa y Claude Code valida.
+# Que quien escribe el código y quien lo juzga usen herramientas y modelos distintos refuerza
+# la regla contra la autocalificación (plan §5).
+default_backend = "claude"
+
+[agent.roles]
+implementer = "opencode"        # todas las tareas de código, incluidas las correcciones de puerta y de revisión
+test_author = "opencode"          # pruebas de aceptación y escenarios de laboratorio
+reviewer = "opencode"
+security_reviewer = "claude"
+
+[agent.claude]
+bin = "/home/agent/.local/bin/claude"
+# Corre como el usuario `agent` (sin root, sin sudo) dentro del LXC dedicado y desechable. Sin bypassPermissions:
+# el revisor de seguridad solo lee y escribe su informe, y los hooks de .claude/ aplican los permisos por rol.
+permission_mode = "default"
+extra_args = ["--allowedTools", "Read,Grep,Glob,Write,Edit,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(pytest:*),Bash(pnpm:*),Bash(ls:*),Bash(cat:*)"]
+env = {}
+
+[agent.opencode]
+bin = "/home/agent/.opencode/bin/opencode"
+# --auto aprueba lo que opencode.json no niega; las negaciones y el plugin
+# .opencode/plugins/fusion-guard.js (que llama al mismo guard.py) siguen aplicando.
+auto_approve = true
+extra_args = []
+
+[agent.custom]
+# Solo si asignas "custom" a un rol: lista con {prompt}, {model} y {system_file}.
+# El orquestador no interpreta su salida: solo exige código de salida 0.
+command_template = ["mi-agente", "--model", "{model}", "--system", "{system_file}", "{prompt}"]
+
+[models]
+# Claude Code acepta alias (opus, sonnet) o nombres completos.
+# OpenCode exige proveedor/modelo, tal como aparece en `opencode models`.
+# CAMBIA las tres líneas del implementador por el modelo que usarás en OpenCode;
+# el orquestador se niega a arrancar mientras digan CAMBIAR.
+implementer = "opencode-go/deepseek-v4.1-flash"
+implementer_hard = "opencode-go/deepseek-v4.1-flash"   # sin tareas hard en v0.1.1
+escalation = "openrouter/deepseek/deepseek-v4.1-flash"   # intento extra por OpenRouter tras agotar los normales
+# Reparto de Roberto (X24). Haiku va directo a OpenRouter (clave propia del proyecto en el entorno del orquestador).
+test_author = "openrouter/anthropic/claude-haiku-5.5"
+reviewer = "opencode-go/mimo-v2.5"
+security_reviewer = "opus"   # Claude Code con la suscripción; solo en fases con superficie de ataque (F1, F2, F3)
+
+[limits]
+max_turns = 200               # por sesión
+session_budget_usd = 10.0     # por sesión; Claude Code lo impone, en OpenCode solo se registra
+phase_budget_usd = 60.0      # por fase; al alcanzarlo, el orquestador se detiene
+# El gasto de OpenCode se suma solo si su salida JSON trae costo; si no, usa además el límite
+# de gasto de tu proveedor (ver README-KIT).
+total_budget_usd = 250.0      # todo v0.1.1
+session_timeout_s = 10800     # 3 h por sesión
+fix_session_timeout_s = 5400  # 1.5 h para correcciones de puerta y revisión (.G1, .G1T, .R1, .X...)
+session_idle_timeout_s = 2700 # 45 min sin actividad (log de OpenCode, stdout, stderr): se mata
+attempts_per_task = 3         # sesiones del implementador antes de escalar
+gate_fix_rounds = 3           # rondas de corrección si la puerta no pasa
+review_rounds = 2             # rondas de corrección si el revisor rechaza
+check_command = "make check"
+check_timeout_s = 3600
+rate_limit_wait_s = 1800      # límite de uso del proveedor: espera entre reintentos
+rate_limit_max_wait_h = 96    # después de esto la sesión cuenta como fallida
+
+[fallback]
+# Cuando Go responde con límite de uso, la misma sesión se repite con el modelo equivalente de
+# OpenRouter. Durante probe_minutes se sigue en OpenRouter; luego se vuelve a probar Go.
+probe_minutes = 60
+
+[fallback.models]
+"opencode-go/deepseek-v4.1-flash" = "openrouter/deepseek/deepseek-v4.1-flash"
+"opencode-go/mimo-v2.5" = "openrouter/xiaomi/mimo-v2.5"
+"opencode-go/claude-haiku-5-5" = "openrouter/anthropic/claude-haiku-5.5"
+
+[git]
+main_branch = "master"
+remote = "origin"
+forge = "forgejo"                              # la forja es Forgejo propio (X28); el token FORGEJO_TOKEN va en secrets.env
+forge_url = "https://TODO-forja.ejemplo"       # TODO(humano): URL HTTPS de tu Forgejo (sin barra final)
+forge_repo = "TODO-dueño/proxmox-gui"          # TODO(humano): dueño/repositorio dentro de Forgejo
+integration_branch = "integracion/v0.1.1"   # cada fase aprobada se fusiona aquí (nunca en master); PR en borrador hacia master
+publish = true            # empuja ramas y abre el PR en borrador con la API de Forgejo (token en secrets.env)
+push_wip = true           # empuja la rama tras cada commit: el trabajo no depende de que el LXC siga vivo
+wait_ci = true            # tras integrar una fase, espera el CI de Forgejo Actions; si falla, el implementador lo corrige
+ci_timeout_min = 45
+author_name = "pgui-orchestrator"
+author_email = "orchestrator@pgui.invalid"
+
+[notify]
+# Se ejecuta con el mensaje en la variable de entorno PGUI_MSG (nunca se interpola en el comando). Vacío = solo registro en
+# orchestrator/logs/. TODO(humano): el canal de avisos al celular se elige antes de soltar agentes (ntfy propio u otro).
+command = ""
+
+[snapshot]
+# Snapshot del LXC dedicado antes de cada fase, con PGUI_SNAPSHOT=<nombre> y las variables de [secrets].
+# TODO(humano): token de Proxmox restringido a `VM.Snapshot` sobre ese solo CT, y su nodo/VMID. El LXC vive fuera de prox-t1.
+command = ""
+
+[secrets]
+# Archivo KEY=VALUE (chmod 600, de root, ilegible para el usuario `agent`) con lo que necesiten [notify] y [snapshot] y las
+# claves de proveedores. El orquestador lo lee y pasa esas variables SOLO a esos comandos y al proceso de cada agente que las
+# necesita; nunca a make check. Este paquete no trae ninguno.
+file = "/etc/pgui-orch/secrets.env"
+# Variables que no deben llegar a los agentes aunque estén en el entorno.
+scrub = ["PVE_TOKEN", "PVE_TOKEN_ID", "PVE_TOKEN_SECRET", "GH_TOKEN", "GITHUB_TOKEN"]

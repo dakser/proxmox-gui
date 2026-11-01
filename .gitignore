@@ -59,3 +59,12 @@ build/
 .planning/inbox/
 .planning/archive/
 .secrets/
+
+# Informes de puertas y laboratorio, estado del orquestador
+/reports/lab/
+/reports/prompts/
+/reports/mutants/
+orchestrator/state.json
+orchestrator/logs/
+orchestrator/run.log
+orchestrator/*.tmp

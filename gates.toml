@@ -1,0 +1,99 @@
+# Puertas por fase (docs/plan.md). Solo las cambia el humano.
+#
+# Una puerta es un examen automático: todos los comandos deben salir con código 0 y las métricas cumplir su umbral.
+# Las métricas (clave = valor) se leen de los JSON que escriben los escenarios de laboratorio (reports/lab/*.json) y, en nivel 2,
+# de reports/lab2/<fase>.json; sufijo _max -> <=, _min -> >=. `review` lista los revisores de la fase (por defecto solo `reviewer`).
+# Lo evalúa scripts/gate.py.
+# `fast` es la puerta de las correcciones; `full` se corre una vez al final de la fase. `regression` se corre en TODAS las
+# puertas. Los comandos se ejecutan desde la raíz del repositorio, con el entorno de desarrollo ya preparado.
+#
+# Nivel 1 (`lab1`): pila de desarrollo contra el PVE del laboratorio; exige ~/.pgui-lab.env y limpia lo que crea.
+# Nivel 2 (`lab2`): lo ejecuta el humano en el LXC 200; el agente solo deja el guion en docs/hardening/LAB-RC.md.
+
+[project]
+name = "proxmox-gui"
+baseline = "master en v0.1.0 (598 pruebas de backend, 382 de frontend al revisarlo)"
+
+[regression]
+# Subconjunto rápido que corre en cada puerta, además de lo propio de la fase.
+fast = [
+  "scripts/check.sh",
+  "bash -c 'cd backend && pytest -q -x'",
+  "bash -c 'cd frontend && pnpm check && pnpm test'",
+  "deploy/tests/run.sh",
+  "deploy/tests/acceptance/run.sh",
+  "python3 scripts/accept_check_selftest.py",
+  "python3 scripts/lock_check.py master",
+]
+secrets = [
+  "gitleaks detect --no-banner --redact --config .gitleaks.toml",
+]
+
+[phase.F0]
+# test_lock_has_no_known_vulns: lo mide esta puerta (pip-audit y pnpm audit sobre los locks).
+fast = [
+  "python3 scripts/accept_check.py F0",
+  "lab/selftest.sh",
+  "pip-audit -r backend/requirements.lock --no-deps --disable-pip",
+  "bandit -q -r backend/app --severity-level medium",
+  "bash -c 'cd frontend && pnpm audit --prod'",
+]
+full = ["scripts/check.sh"]
+review = ["reviewer"]
+
+[phase.F1]
+fast = [
+  "python3 scripts/accept_check.py F1",
+  "bash -c 'cd backend && pytest -q tests/acceptance -k \"session or bootstrap or wizard or team\"'",
+  "bash -c 'cd frontend && pnpm test -- tests/acceptance'",
+]
+full = [
+  "bash -c 'cd backend && pytest -q'",
+  "bash -c 'cd frontend && pnpm check && pnpm test && pnpm build'",
+]
+lab1 = ["lab/scenarios/f1_new_user_can_provision.sh"]
+metrics = { new_user_sees_cluster = true, session_survives_full_reload_after_expiry = true }
+review = ["reviewer", "security_reviewer"]
+
+[phase.F2]
+fast = [
+  "python3 scripts/accept_check.py F2",
+  "bash -c 'cd backend && pytest -q tests/acceptance -k \"network or bridge or bootstrap or fingerprint or policy\"'",
+  "bash -c 'cd frontend && pnpm test -- tests/acceptance'",
+]
+full = [
+  "bash -c 'cd backend && pytest -q'",
+  "bash -c 'cd frontend && pnpm check && pnpm test && pnpm build'",
+]
+lab1 = [
+  "lab/scenarios/f2_networks_listed.sh",
+  "lab/scenarios/f2_full_provision.sh",
+]
+metrics = { undocumented_privileges_needed = 0 }
+review = ["reviewer", "security_reviewer"]
+
+[phase.F3]
+fast = [
+  "python3 scripts/accept_check.py F3",
+  "deploy/tests/acceptance/run.sh",
+]
+full = [
+  "deploy/tests/run.sh",
+  "bash -c 'cd backend && pytest -q'",
+]
+lab2 = ["docs/hardening/LAB-RC.md"]
+# La puntuación de sandbox no puede empeorar (R-25). El tamaño del tarball se compara con el de v0.1.0 medido en la misma
+# corrida (no contra un número fijo) y debe ser menor.
+metrics = { systemd_security_score_max = 1.5, tarball_smaller_than_v010 = true }
+review = ["reviewer", "security_reviewer"]
+
+[phase.F4]
+full = [
+  "python3 scripts/accept_check.py F4",
+  "scripts/check.sh",
+  "bash -c 'cd backend && pytest -q'",
+  "bash -c 'cd frontend && pnpm check && pnpm test && pnpm build'",
+  "deploy/tests/run.sh",
+]
+lab2 = ["docs/hardening/LAB-RC.md"]
+metrics = { update_v010_to_rc_succeeds = true, rollback_on_broken_release = true, invalid_signature_rejected = true }

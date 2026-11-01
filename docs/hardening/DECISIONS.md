@@ -21,3 +21,28 @@ Las decisiones D1–D12 del registro de `PLAN.md` se aplican tal cual (todas `[R
 | X15 | La clave de firma del updater es la que `install.sh` usó para verificar la instalación (se entrega al LXC); rotarla = reinstalar o editar `/etc/proxmox-gui/release-signers` a mano `[REVISAR]` | Una release firmada no puede cambiar quién puede firmar |
 | X16 | Si el worker se reinicia a mitad de una actualización (p. ej. restauración de BD tras un fallo), el job queda huérfano y el reaper lo marca `needs_review` `[REVISAR]` | Comportamiento ya existente del reaper para jobs sin UPID |
 | X17 | Reproducibilidad: solo el empaquetado es determinista; el build de Vite/SvelteKit no lo es (hashes de chunk cambian entre ejecuciones). No se promete "build reproducible"; la garantía es release firmada por ti + build en CI desde lockfile `[REVISAR]` | Comprobado construyendo dos veces el mismo commit |
+| X18 | DECISIÓN HUMANA (operación): un equipo nuevo nace con una **cuota inicial configurable** por el administrador en Settings, no ilimitada (hallazgo L-17) | Hoy los campos vacíos significan "sin límite"; la cuota inicial evita equipos sin tope por omisión. Pertenece a v0.2.0 |
+| X19 | DECISIÓN HUMANA (operación): al quitar a un usuario el permiso de crear API tokens, sus tokens existentes se **revocan** en el acto, con entrada de auditoría (M-02) | Reutiliza la revocación que ya hace el borrado de usuario |
+| X20 | DECISIÓN HUMANA (forma interna): las etiquetas "VM" y "LXC" de la interfaz pasan a `VM-T1` y `VM-T2` y el administrador las edita en Settings; son iguales para todos y no se traducen. **Mapeo confirmado por Roberto (2026-11-01): VM → VM-T1, LXC → VM-T2.** La API, la auditoría y la documentación conservan `vm`/`lxc` (M-03) | No rompe integraciones |
+| X21 | DECISIÓN HUMANA (operación): idiomas inglés y español, elegibles por usuario en Profile; la API devuelve códigos de error que la interfaz traduce (M-04) | Corrige mensajes engañosos de raíz |
+| X22 | DECISIÓN HUMANA (operación): primero una release `v0.1.1` con correcciones; las mejoras M-01 … M-08 van después, en PRs separados hacia `v0.2.0` | Aislamiento y facilidad de revertir |
+| X23 | DECISIÓN HUMANA (operación): el trabajo autónomo se ejecuta con OpenCode como implementador y Claude Code como revisor de seguridad, siguiendo el esquema de proyectos autónomos, dentro de un entorno aislado y no en una máquina con otros servicios | Un agente autónomo ejecuta comandos; el aislamiento es la barrera |
+| X24 | DECISIÓN HUMANA (operación): reparto de modelos del trabajo autónomo. Autor de pruebas: Claude Haiku 5.5 (OpenRouter). Implementador: DeepSeek V4.1 Flash (OpenCode Go). Revisor: MiMo-V2.5 (OpenCode Go). Revisor de seguridad: Claude Opus (suscripción de Roberto, Claude Code) solo cuando la fase tenga superficie de ataque (F1, F2, F3). Respaldo automático a modelos equivalentes de OpenRouter, con clave de OpenRouter propia del proyecto. La cuota de OpenCode Go es compartida con otros usos (~68 % consumida; renueva el 15 de noviembre): se revisa cada semana | Separa quien escribe las pruebas de quien escribe el código y de quien revisa; el respaldo evita parar por una cuota agotada |
+| X25 | DECISIÓN HUMANA (operación): máxima autonomía; el humano valida al final. El orquestador (no los agentes) hace commits y empuja; cada fase aprobada por puerta, revisión y CI se fusiona en `integracion/v0.1.1` (nunca en `master`), con un PR en borrador hacia `master` que pasa a listo al terminar todas las fases. Los pasos de nivel 2 se acumulan para una sola validación final. Los agentes no usan `git`/`gh` de escritura. Sin snapshots automáticos del LXC (no se le da ningún token de Proxmox); el trabajo se empuja tras cada commit | Reemplaza "un PR por punto abierto por el agente" y "un PR por fase fusionado a mano"; menos intervención manual sin dar a nadie la fusión a `master` |
+| X26 | DECISIÓN HUMANA (forma interna): la mutación de cada prueba la aplica el implementador al cerrar la tarea y la anota como `MUTACIÓN <prueba>: detectada` en `docs/BLOCKERS.md`; el orquestador lo exige y el revisor lo comprueba. El autor de pruebas no puede tocar código de producción | Evita que el autor de pruebas escriba código y que una prueba sin mutación pase como probada |
+
+## X27 — Repo privado y distribución de releases desde origen propio (DECISIÓN HUMANA)
+
+- El repositorio pasa a privado duplicándolo a uno nuevo; el público actual no se borra ni se renombra sin permiso expreso.
+- Independencia de GitHub solo en la **distribución**: instalador, updater y aviso de versión usan un origen de releases propio
+  (R-28 … R-33, tareas F3.6 – F3.8). El código y el CI siguen en GitHub privado; el orquestador mantiene `gh`.
+- La firma de release sigue siendo la única ancla de confianza; `latest.json` firmado añade protección contra rollback.
+
+## X28 — Independencia total de GitHub: Forgejo propio con CI (DECISIÓN HUMANA, sustituye el alcance de X27)
+
+- Alcance C: código, PR y CI en un Forgejo propio (CT nuevo `pgui-forge`, con runner en modo host), además de la distribución
+  de X27. El repo de GitHub no se toca hasta que él decida; el repo privado de GitHub ya no se crea.
+- CI portado a `.forgejo/workflows/` sin acciones de terceros; `.github/` y Dependabot se eliminan. El orquestador deja `gh`
+  y usa la API de Forgejo (`orchestrator/forge.py`, autoprueba con un servidor falso). Sigue siendo externo: registros de
+  paquetes, descargas del toolchain fijadas por hash, modelos de IA y el catálogo opcional de community-scripts.
+- Sin probar contra un Forgejo real; se comprueba en la primera corrida (`once F0.1`) y el primer push al CI.

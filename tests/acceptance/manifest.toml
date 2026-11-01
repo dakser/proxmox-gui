@@ -1,0 +1,364 @@
+# Manifiesto de las pruebas de aceptación de v0.1.1. Solo el humano lo cambia (está sellado en el lock).
+# Cada entrada nombra una prueba, dónde vive, qué regla de docs/spec/v0.1.1.md cubre, qué demuestra y qué mutación la
+# haría fallar. `scripts/accept_check.py <fase>` comprueba que cada prueba de las fases hasta <fase> existe con ese nombre
+# exacto en cada archivo indicado. Una prueba que falte o se renombre NO cuenta como aprobada.
+#
+# kind: "py" (pytest), "ts" (vitest), "sh" (deploy/tests/acceptance), "lab" (lab/scenarios/<name>.sh), "gate" (la puerta la mide).
+
+[dependencies]
+# Dependencias de prueba declaradas de antemano. El autor de pruebas NO añade dependencias: si necesita otra, la pide en
+# docs/BLOCKERS.md y el humano la añade con scripts/update-lock.sh (backend) o pnpm con lockfile (frontend).
+backend = ["pytest", "pytest-asyncio", "respx", "httpx (ya es dependencia del backend)"]
+frontend = ["vitest", "jsdom", "axe-core (ya presentes en devDependencies)"]
+deploy = ["bash", "shellcheck", "perl", "sqlite3", "ssh-keygen (los usa deploy/tests/run.sh)"]
+lab = ["bash", "curl", "python3", "~/.pgui-lab.env (ver docs/hardening/BRIEF-OPENCODE.md)"]
+doubles = "El doble de Proxmox para pruebas de aceptación se escribe en backend/tests/acceptance/doubles/ (sellado). No se usa ni se edita tests/fixtures/pve_responses.py, que el implementador sí puede tocar."
+
+[[test]]
+name = "test_scaffold_backend_runs"
+phase = "F0"
+kind = "py"
+files = ["backend/tests/acceptance/test_scaffold.py"]
+rules = []
+proves = "El directorio de aceptación del backend se recoge y ejecuta con la configuración real de pytest"
+mutation = "Renombrar el archivo a algo que pytest no recoja y comprobar que accept_check.py falla"
+
+[[test]]
+name = "scaffold_frontend_runs"
+phase = "F0"
+kind = "ts"
+files = ["frontend/tests/acceptance/scaffold.test.ts"]
+rules = []
+proves = "El directorio de aceptación del frontend lo recoge vitest (patrón tests/**)"
+mutation = "Cambiar la aserción a falsa y comprobar que pnpm test falla"
+
+[[test]]
+name = "scaffold_deploy_runs"
+phase = "F0"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_scaffold.sh"]
+rules = []
+proves = "El ejecutor deploy/tests/acceptance/run.sh encuentra y corre las pruebas de aceptación del instalador"
+mutation = "Hacer que la prueba salga con 1 y comprobar que run.sh falla"
+
+[[test]]
+name = "selftest"
+phase = "F0"
+kind = "lab"
+files = ["lab/selftest.sh"]
+rules = []
+proves = "El ejecutor de laboratorio no da por buena una corrida sin informe, con informe viejo, con pass=false o con código de salida distinto de 0, y limpia al fallar"
+mutation = "Quitar la comprobación del código de salida, el borrado del informe previo o la lectura de pass en lab/run.sh (probado: selftest falla en las tres)"
+
+[[test]]
+name = "test_lock_has_no_known_vulns"
+task = "F0.1"
+phase = "F0"
+kind = "gate"
+files = ["gates.toml"]
+rules = ["R-01", "R-02"]
+proves = "pip-audit sobre backend/requirements.lock y pnpm audit --prod no encuentran vulnerabilidades"
+mutation = "Fijar certifi a 2026.7.22 en el lock y comprobar que la puerta F0 falla"
+
+# ── F1 ──────────────────────────────────────────────────────────────────────────────────────────
+[[test]]
+name = "test_ssr_refreshes_expired_access_cookie"
+task = "F1.1"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/session.test.ts"]
+rules = ["R-03"]
+proves = "Con la cookie de acceso caducada y el refresh vigente, la carga del servidor renueva la sesión, reenvía Set-Cookie y no redirige a /login"
+mutation = "Quitar la rama de renovación de hooks.server.ts"
+
+[[test]]
+name = "test_ssr_redirects_when_refresh_expired_or_idle"
+task = "F1.1"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/session.test.ts"]
+rules = ["R-04"]
+proves = "Con refresh caducado o inactividad superior a idle_timeout_minutes, la carga redirige con 303 a /login?next="
+mutation = "Renovar siempre, sin mirar caducidad ni inactividad"
+
+[[test]]
+name = "test_refresh_rotates_single_use"
+task = "F1.1"
+phase = "F1"
+kind = "py"
+files = ["backend/tests/acceptance/test_session.py"]
+rules = ["R-05"]
+proves = "Cada refresh es de un solo uso: reutilizar uno ya usado se rechaza"
+mutation = "Permitir reutilizar el refresh"
+
+[[test]]
+name = "test_create_user_bootstraps_all_active_clusters"
+task = "F1.2"
+phase = "F1"
+kind = "py"
+files = ["backend/tests/acceptance/test_bootstrap.py"]
+rules = ["R-07"]
+proves = "Crear un usuario provisiona pool y token de su equipo personal en cada clúster activo"
+mutation = "Volver a no hacer bootstrap al crear el usuario"
+
+[[test]]
+name = "test_create_user_rolls_back_on_pve_failure"
+task = "F1.2"
+phase = "F1"
+kind = "py"
+files = ["backend/tests/acceptance/test_bootstrap.py"]
+rules = ["R-07"]
+proves = "Si Proxmox falla a mitad, el doble de Proxmox no conserva pool, usuario ni token creados y el error llega al admin"
+mutation = "Quitar la limpieza en Proxmox (el doble debe quedar con restos)"
+
+[[test]]
+name = "test_backfill_is_idempotent_and_exposed_in_ui"
+task = "F1.2"
+phase = "F1"
+kind = "py"
+files = ["backend/tests/acceptance/test_bootstrap.py", "frontend/tests/acceptance/cluster-backfill.test.ts"]
+rules = ["R-08"]
+proves = "Reparar dos veces no duplica nada, y la ficha del clúster muestra el botón que lo invoca"
+mutation = "Crear un pool nuevo en cada ejecución; quitar el botón de la ficha"
+
+[[test]]
+name = "test_wizard_defaults_to_team_with_token"
+task = "F1.3"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/wizard.test.ts"]
+rules = ["R-09"]
+proves = "El equipo por defecto del asistente es uno con token en el clúster elegido"
+mutation = "Volver al equipo personal por defecto"
+
+[[test]]
+name = "test_create_button_disabled_with_reason"
+task = "F1.3"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/wizard.test.ts"]
+rules = ["R-10"]
+proves = "Si falta clúster o equipo, el botón Create está desactivado y la razón es visible"
+mutation = "Dejar el botón activo y salir en silencio de submit()"
+
+[[test]]
+name = "test_create_error_shows_detail"
+task = "F1.3"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/wizard.test.ts"]
+rules = ["R-11"]
+proves = "El detail de un 403 o 409 se muestra resumido, sin datos internos"
+mutation = "Volver al mensaje genérico de mapLxcCreateError"
+
+[[test]]
+name = "test_team_members_tab_lists_and_edits"
+task = "F1.4"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/team-members.test.ts"]
+rules = ["R-12"]
+proves = "La pestaña Members lista los miembros reales y permite añadir y quitar"
+mutation = "Volver al texto de desarrollo"
+
+[[test]]
+name = "test_setup_and_login_make_no_failing_requests"
+task = "F1.5"
+phase = "F1"
+kind = "ts"
+files = ["frontend/tests/acceptance/setup-login.test.ts"]
+rules = ["R-06"]
+proves = "/setup y /login no hacen peticiones que fallen (401 evitable, 404 de favicon, 307 de settings)"
+mutation = "Volver a pedir /api/v1/admin/settings/ sin sesión"
+
+[[test]]
+name = "f1_new_user_can_provision"
+task = "F1.0"
+phase = "F1"
+kind = "lab"
+files = ["lab/scenarios/f1_new_user_can_provision.sh"]
+rules = ["R-07", "R-09"]
+proves = "En prox-t1, un usuario nuevo entra, ve el clúster y crea un LXC pequeño en el pool de su equipo; luego se limpia todo"
+mutation = "Deshacer el bootstrap al crear usuario: el escenario debe fallar porque el usuario no ve clúster"
+
+# ── F2 ──────────────────────────────────────────────────────────────────────────────────────────
+[[test]]
+name = "test_list_bridges_logs_and_reports_read_failure"
+task = "F2.1"
+phase = "F2"
+kind = "py"
+files = ["backend/tests/acceptance/test_networks.py"]
+rules = ["R-14"]
+proves = "Un fallo de lectura de puentes se registra (nodo, operación, código HTTP, sin secretos) y la respuesta distingue 'sin redes' de 'no se pudo leer'"
+mutation = "Volver a except Exception: continue sin registro"
+
+[[test]]
+name = "test_network_picker_lists_vmbr0_with_documented_role"
+task = "F2.1"
+phase = "F2"
+kind = "py"
+files = ["backend/tests/acceptance/test_networks.py"]
+rules = ["R-13", "R-15"]
+proves = "Con el doble de Proxmox que filtra por SDN.Use (usuario y token), el portal lista vmbr0 y el rol documentado incluye SDN.Use sobre /sdn/zones/localnetwork"
+mutation = "Quitar SDN.Use del rol documentado: el doble devuelve lista vacía y la prueba falla"
+
+[[test]]
+name = "test_bootstrap_failure_is_logged_at_error"
+task = "F2.2"
+phase = "F2"
+kind = "py"
+files = ["backend/tests/acceptance/test_cluster_register.py"]
+rules = ["R-16"]
+proves = "Un fallo de aprovisionamiento al registrar un clúster se registra con ERROR, sin secretos, y la respuesta lleva el motivo resumido"
+mutation = "Quitar el registro"
+
+[[test]]
+name = "test_fingerprint_disables_chain_check_or_explains"
+task = "F2.3"
+phase = "F2"
+kind = "py"
+files = ["backend/tests/acceptance/test_cluster_register.py"]
+rules = ["R-17"]
+proves = "Con huella escrita, la validación de cadena se desactiva sola, o el error explica por qué falló"
+mutation = "Ignorar la huella cuando verify_ssl es verdadero, sin mensaje"
+
+[[test]]
+name = "test_unverified_tls_without_fingerprint_warns"
+task = "F2.3"
+phase = "F2"
+kind = "ts"
+files = ["frontend/tests/acceptance/cluster-form.test.ts"]
+rules = ["R-18"]
+proves = "Desactivar la verificación de cadena sin huella exige la huella o muestra una advertencia clara"
+mutation = "Aceptar verify_ssl=false sin huella y sin advertencia"
+
+[[test]]
+name = "test_policy_rejection_message_is_not_a_network_error"
+task = "F2.4"
+phase = "F2"
+kind = "ts"
+files = ["frontend/tests/acceptance/cluster-form.test.ts"]
+rules = ["R-19"]
+proves = "Un 422 por destino no permitido (127.0.0.1, 169.254.169.254) muestra 'Esa dirección no está permitida como destino de Proxmox', no 'Couldn't reach that URL'"
+mutation = "Tratar el 422 como fallo de red"
+
+[[test]]
+name = "f2_networks_listed"
+task = "F2.0"
+phase = "F2"
+kind = "lab"
+files = ["lab/scenarios/f2_networks_listed.sh"]
+rules = ["R-13"]
+proves = "En prox-t1, con el rol documentado, el portal lista vmbr0"
+mutation = "Registrar el clúster con el rol sin SDN.Use: la lista queda vacía y el escenario falla"
+
+[[test]]
+name = "f2_full_provision"
+task = "F2.0"
+phase = "F2"
+kind = "lab"
+files = ["lab/scenarios/f2_full_provision.sh"]
+rules = ["R-15"]
+proves = "En prox-t1, con solo el rol documentado: registrar clúster, crear equipo, crear LXC y crear VM; no hace falta ningún privilegio no documentado (incluido SDN.Use en el token del equipo, por validar)"
+mutation = "Quitar un privilegio de la lista documentada: el escenario debe fallar"
+
+# ── F3 ──────────────────────────────────────────────────────────────────────────────────────────
+[[test]]
+name = "test_install_no_sshd"
+task = "F3.1"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_install_no_sshd.sh"]
+rules = ["R-21"]
+proves = "Sin --enable-community-scripts, install.sh deshabilita ssh y ssh.socket en el CT"
+mutation = "Quitar la deshabilitación"
+
+[[test]]
+name = "test_setup_token_removed_after_admin"
+task = "F3.2"
+phase = "F3"
+kind = "py"
+files = ["backend/tests/acceptance/test_setup_token.py"]
+rules = ["R-22"]
+proves = "Al crear el administrador, el archivo del token de setup se elimina o invalida"
+mutation = "No tocar el archivo"
+
+[[test]]
+name = "test_bootstrap_locale_and_caddy"
+task = "F3.3"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_bootstrap_locale_and_caddy.sh"]
+rules = ["R-23"]
+proves = "El bootstrap genera el locale en_US.UTF-8 y la plantilla de Caddy lleva skip_install_trust"
+mutation = "Quitar cualquiera de los dos"
+
+[[test]]
+name = "test_tarball_has_no_dev_deps"
+task = "F3.5"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh"]
+rules = ["R-24"]
+proves = "El tarball no incluye vite, typescript ni tailwindcss y pesa menos que el de v0.1.0 medido en la misma corrida"
+mutation = "Volver a incluir frontend/node_modules completo"
+
+[[test]]
+name = "test_installer_uses_release_base"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_installer_uses_release_base.sh"]
+rules = ["R-28", "R-33"]
+proves = "Con --release-base, el instalador descarga todo de ese origen y ninguna URL va a github.com"
+mutation = "Volver a DEFAULT_REPO_URL de GitHub"
+
+[[test]]
+name = "test_installer_requires_release_base"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_installer_requires_release_base.sh"]
+rules = ["R-28"]
+proves = "Sin ningún origen definido, el instalador se detiene con un mensaje claro y no intenta github.com"
+mutation = "Caer a github.com cuando no hay origen"
+
+[[test]]
+name = "test_updater_uses_release_base_and_rejects_bad_manifest"
+task = "F3.6"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_updater_uses_release_base_and_rejects_bad_manifest.sh"]
+rules = ["R-29", "R-30", "R-33"]
+proves = "El updater acepta un origen válido y rechaza firma inválida de latest.json, versión menor que la instalada y hash de SHA256SUMS que no coincide, sin tocar la instalación"
+mutation = "No verificar la firma de latest.json"
+
+[[test]]
+name = "test_selfupdate_reads_release_manifest"
+task = "F3.7"
+phase = "F3"
+kind = "py"
+files = ["backend/tests/acceptance/test_selfupdate_manifest.py"]
+rules = ["R-31"]
+proves = "El aviso de versión nueva lee latest.json del origen configurado, informa y no llama a api.github.com"
+mutation = "Volver a consultar la API de releases de GitHub"
+
+[[test]]
+name = "test_stage_release_layout"
+task = "F3.8"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_stage_release_layout.sh"]
+rules = ["R-29", "R-30"]
+proves = "scripts/stage-release.sh produce la estructura de R-29 con latest.json y latest.json.sig verificable con la clave de prueba"
+mutation = "Omitir latest.json.sig"
+
+[[test]]
+name = "test_no_github_release_urls_in_runtime"
+task = "F3.8"
+phase = "F3"
+kind = "sh"
+files = ["deploy/tests/acceptance/test_no_github_release_urls_in_runtime.sh"]
+rules = ["R-32"]
+proves = "Ningún archivo de ejecución contiene URLs de releases de GitHub (se exceptúan community-scripts y deploy/pins.env)"
+mutation = "Reintroducir una URL de release de GitHub en install.sh"

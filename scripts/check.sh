@@ -20,7 +20,7 @@ mapfile -t SH_FILES < <(
     { git ls-files 'deploy/*.sh' 'scripts/*.sh' 'deploy/**/*.sh'
       git ls-files --others --exclude-standard 'deploy/*.sh' 'scripts/*.sh' 'deploy/**/*.sh'
       # extension-less shell scripts (shims, gate, updater)
-      grep -rIl --exclude-dir=node_modules '^#!/usr/bin/env bash\|^#!/bin/bash' deploy scripts 2>/dev/null
+      grep -rIl --exclude-dir=node_modules '^#!/usr/bin/env bash\|^#!/bin/bash' deploy scripts orchestrator 2>/dev/null
     } | sort -u
 )
 for f in "${SH_FILES[@]}"; do
