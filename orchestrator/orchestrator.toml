@@ -19,7 +19,7 @@ bin = "/home/agent/.local/bin/claude"
 # Corre como el usuario `agent` (sin root, sin sudo) dentro del LXC dedicado y desechable. Sin bypassPermissions:
 # el revisor de seguridad solo lee y escribe su informe, y los hooks de .claude/ aplican los permisos por rol.
 permission_mode = "default"
-extra_args = []
+extra_args = ["--allowedTools", "Read,Grep,Glob,Write,Edit,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(pytest:*),Bash(pnpm:*),Bash(ls:*),Bash(cat:*)"]
 env = {}
 
 [agent.opencode]
@@ -77,6 +77,8 @@ probe_minutes = 60
 
 [git]
 main_branch = "master"
+remote = "origin"
+publish = true            # al cerrar cada fase: git push de fase/Fx y gh pr create (token de grano fino en secrets.env)
 author_name = "pgui-orchestrator"
 author_email = "orchestrator@pgui.invalid"
 

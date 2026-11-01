@@ -30,7 +30,7 @@ CASES = [  # (rol, herramienta, entrada, bloquea?)
     ("test_author", "Write", {"file_path": "reports/lab2/F3.json"}, True),
     ("implementer", "Write", {"file_path": ".github/workflows/ci.yml"}, True),
     ("implementer", "Write", {"file_path": "deploy/release-signers"}, True),
-    ("implementer", "Write", {"file_path": "../outside.txt"}, True),
+    ("implementer", "Write", {"file_path": "../../../../../../../../var/lib/outside.txt"}, True),
     ("implementer", "Write", {"file_path": "/etc/passwd"}, True),
     ("implementer", "Write", {"file_path": "/tmp/scratch.txt"}, False),
     ("test_author", "Write", {"file_path": "backend/tests/acceptance/test_x.py"}, False),

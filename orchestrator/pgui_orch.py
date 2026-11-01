@@ -1185,6 +1185,7 @@ class Orchestrator:
             approved_all &= ok
             if not ok:
                 texts.append(f"[{role}]\n{text}")
+                break  # el revisor de seguridad (el caro) solo ve lo que el revisor normal ya aprobó
         return approved_all, "\n\n".join(texts)
 
     def _review_one(self, phase: str, role: str) -> tuple[bool, str]:
@@ -1463,7 +1464,12 @@ class Orchestrator:
                 if only_phase and phase != only_phase:
                     continue
                 self.run_phase(phase)
-            if not only_phase:
+            pending = [p for p in self.phases if self.state["phases"].get(p, {}).get("status") != "done"]
+            if only_phase:
+                pass
+            elif pending:
+                self.notify(f"se detiene hasta que fusiones el PR de {pending[0]} (fase publicada); luego relanza `run`")
+            else:
                 self.notify("v0.1.1 lista para la validación humana: todas las fases fusionadas; sigue docs/hardening/LAB-RC.md y firma la release")
             return 0
         except Halt as h:

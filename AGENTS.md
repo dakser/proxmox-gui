@@ -15,8 +15,10 @@ credenciales) y `docs/hardening/V0.1.1-PLAN.md` (inventario de hallazgos con su 
 2. **Duda = decisión registrada.** Ante una ambigüedad, el agente elige la opción conservadora, la anota como
    `PROVISIONAL` en `docs/hardening/DECISIONS.md` (con su impacto: *operación* o *forma interna*) y sigue. Nunca cambia
    la especificación ni una puerta.
-3. **Cada prueba nueva lleva su mutación.** Se rompe a propósito la regla que fija, se confirma que la prueba falla, se
-   restaura y se anota en `docs/BLOCKERS.md`.
+3. **Cada prueba nueva lleva su mutación.** Al cerrar una tarea, el implementador rompe a propósito la regla que fija cada
+   prueba (la mutación está en `tests/acceptance/manifest.toml`), confirma que la prueba falla, **restaura** el código y anota
+   `MUTACIÓN <prueba>: detectada` en `docs/BLOCKERS.md`. Si la prueba no falla, `CULPA: prueba`. El orquestador exige esas
+   líneas (`scripts/accept_check.py --mutations`) y el revisor comprueba que sean ciertas.
 4. **Trazabilidad al día.** Cada regla cerrada tiene su fila en `docs/TRACEABILITY.md` con la prueba que la cubre. Una
    regla sin prueba no se presenta como probada.
 5. **Economía.** Al empezar, `date` y un plan escrito. Mientras se trabaja, solo las pruebas del módulo tocado; la
@@ -27,8 +29,9 @@ credenciales) y `docs/hardening/V0.1.1-PLAN.md` (inventario de hallazgos con su 
    numerados con archivo, regla, prueba de que falta y qué debe pasar; notas que no bloquean, aparte.
 9. **Culpa explícita.** Si el agente cree que falla la prueba y no el código, lo dice en una línea marcada
    (`CULPA: prueba`), nunca en prosa. Las pruebas de aceptación no las toca el implementador.
-10. **Roles separados.** El implementador no modifica `tests/acceptance/`, `lab/scenarios/`, `gates.toml`, `docs/spec/`
-    ni `docs/plan.md`. El revisor no modifica código: solo escribe su informe.
+10. **Roles separados.** El implementador no modifica las pruebas de aceptación (`backend|frontend|deploy tests/acceptance`,
+    `tests/acceptance`), `lab/`, `gates.toml`, `docs/spec/`, `docs/plan.md`, `Makefile`, `.github/` ni el kit. El autor de pruebas
+    solo escribe pruebas de aceptación y escenarios de laboratorio. Los revisores no modifican código: solo escriben su informe.
 
 ## Reglas propias de este proyecto
 
@@ -42,7 +45,8 @@ credenciales) y `docs/hardening/V0.1.1-PLAN.md` (inventario de hallazgos con su 
   `gitleaks detect --no-banner --redact --config .gitleaks.toml`.
 - Nunca `.planning/*` a mano, ni `--no-verify`, ni reescribir historia publicada, ni empujar a `master`.
 - Nunca crear etiquetas `v*`, releases ni tocar claves de firma. Nunca ejecutar `install.sh` fuera del laboratorio.
-- Commits pequeños y atómicos, mensajes convencionales (`fix(frontend): …`). Un PR por punto hacia `master`.
+- Los agentes no hacen commits, ramas, PR ni usan `gh`/`git` de escritura: lo hace el orquestador (commits atómicos por tarea,
+  un PR por fase hacia `master`, que fusiona el humano).
 
 ## Cuándo parar
 

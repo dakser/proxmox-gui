@@ -43,11 +43,13 @@ PGUI_LAB_ADMIN_PASSWORD=...
 - Sin acceso `pct exec` ni SSH root al nodo para el agente. Lo que haga falta ejecutar ahí lo prepara el agente y lo
   ejecuta Roberto (ver nivel 2).
 
-**Reparto de roles** (esquema de proyectos autónomos): OpenCode implementa y escribe las pruebas de aceptación (el
-implementador no toca `tests/acceptance/` ni `lab/scenarios/` una vez sellados); otro modelo revisa el diff contra
-`docs/spec/v0.1.1.md`; **Claude Code** hace la revisión de seguridad de las fases con más superficie (F1, F2 y F3). El
-coordinador (el programa que reparte tareas, corre `gates.toml` y avisa) es el de fusiond, adaptado; aún no está en este
-repositorio.
+**Reparto de roles** (esquema de proyectos autónomos, ver `docs/hardening/ORCHESTRATOR.md`): el **autor de pruebas** (Claude Haiku
+vía OpenRouter) escribe las pruebas de aceptación y los escenarios de laboratorio antes del código; el **implementador**
+(DeepSeek V4.1 Flash vía OpenCode Go) hace que pasen; el **revisor** (MiMo-V2.5 vía OpenCode Go) juzga el diff contra
+`docs/spec/v0.1.1.md`; y el **revisor de seguridad** (Claude Opus por Claude Code) revisa las fases con superficie de ataque
+(F1, F2, F3). Ninguno hace commits, ramas, PR ni toca `gh`: lo hace el **orquestador** (`orchestrator/pgui_orch.py`, sin LLM), que
+también corre las puertas de `gates.toml`. Las guardas (`.claude/hooks/guard.py` y el plugin de OpenCode) bloquean escrituras
+fuera del rol.
 
 ## 2. Hechos del laboratorio (no son secretos)
 
@@ -75,20 +77,21 @@ en el LXC dedicado. El agente deja un guion corto y comentado en `docs/hardening
 los ejecuta en `prox-t1` tras un snapshot, y devuelve la salida. Las releases `v0.1.1-rcN` son **prereleases** que firma
 Roberto con `scripts/release-sign.sh`; el agente nunca ve la clave privada ni crea etiquetas `v*`.
 
-## 4. Flujo por punto del plan
+## 4. Flujo (lo ejecuta el orquestador; esto es lo que ve cada agente)
 
-1. Rama `fix/L-xx-descripcion` o `feat/M-xx-descripcion` desde `master`.
-2. **Primero una prueba que falle** y reproduzca lo observado (para L-01: cookie de acceso caducada con refresh vigente;
-   para L-04: conector simulado que devuelve error; etc.).
-3. Implementar el cambio mínimo. Si toca la superficie de la API, actualizar lo que dependa de ella (esquemas, tipos
-   del frontend en `frontend/src/lib/api/`, y `backend/tests/test_http_surface.py`).
-4. `scripts/check.sh` completo, `pytest -q` en `backend/` y, en `frontend/`, `pnpm check && pnpm test && pnpm build`.
-5. Verificación de nivel 1 si aplica; anotar el resultado en `LAB-RESULTS.md`.
-6. Commits atómicos con mensajes convencionales (`fix(frontend): ...`). Un PR por punto hacia `master`, con: qué se vio,
-   causa, qué cambia, cómo se probó (nivel 1/2), y el riesgo para el endurecimiento.
-7. El PR debe pasar **todo** el CI (`shell`, `backend`, `frontend`, `scans`, `smoke-systemd`) antes de pedir revisión.
-   Empieza por **L-00**: con `scans` en rojo no se fusiona nada.
-8. Dependencias solo con `scripts/update-lock.sh` (y `pnpm` con lockfile); nunca editar a mano `requirements.lock`.
+1. El orquestador crea la rama `fase/Fx` desde `master` y reparte las tareas de `orchestrator/tasks.toml` en orden.
+2. Por cada tarea con pruebas: primero el **autor de pruebas** escribe lo que el manifiesto `tests/acceptance/manifest.toml`
+   asigna a esa tarea (nombre y archivo exactos) y el orquestador lo sella en un commit `T Fx.y`; luego el **implementador**
+   hace el cambio mínimo hasta que pasen `make check` y esas pruebas, aplica la mutación de cada una y la anota como
+   `MUTACIÓN <prueba>: detectada` en `docs/BLOCKERS.md`; el orquestador lo verifica y hace el commit `Fx.y: <título>`.
+3. Si el implementador cree que la prueba es la errónea: línea `CULPA: prueba` y registro PROVISIONAL en `DECISIONS.md`;
+   nunca la edita.
+4. Cuando acaban las tareas: puerta rápida (`gate.py Fx --quick`), revisión (revisor y, en F1 a F3, revisor de seguridad) y puerta
+   completa (`full`, escenarios de laboratorio de nivel 1 con `lab/run.sh`, métricas). Si algo falla, rondas de corrección.
+5. `lock-check` (ninguna mezcla de pruebas y código, nada del kit tocado) y publicación: el orquestador empuja la rama y
+   abre **un PR por fase** hacia `master` (un commit por tarea). **Se detiene hasta que Roberto lo fusione** con el CI completo
+   en verde; al relanzar, sigue con la fase siguiente. Nadie fusiona solo.
+6. Dependencias solo con `scripts/update-lock.sh` (y `pnpm` con lockfile); nunca editar a mano `requirements.lock`.
 
 ## 5. Prohibido
 
@@ -126,7 +129,5 @@ Si devuelve `{"data":[]}`, Proxmox filtra la lista para ese token (probable falt
 
 ## 8. Prompt de arranque
 
-> Lee `AGENTS.md`, `CLAUDE.md`, `docs/spec/v0.1.1.md`, `docs/plan.md`, `gates.toml` y `docs/hardening/BRIEF-OPENCODE.md`.
-> Trabaja el plan por fases, empezando por F0. Un PR por punto, con la prueba de aceptación escrita antes que el código y su
-> mutación anotada en `docs/BLOCKERS.md`. No toques secretos ni etiquetas `v*`; no debilites el endurecimiento. Deja la
-> evidencia de laboratorio en `docs/hardening/LAB-RESULTS.md` sin secretos, y para en cada punto de la sección 6.
+Ya no se pega un prompt: el orquestador compone el de cada sesión (tarea, reglas `R-xx`, sección del plan, pruebas del
+manifiesto) y OpenCode carga `AGENTS.md` solo. Para arrancar: `docs/hardening/ORCHESTRATOR.md`.
