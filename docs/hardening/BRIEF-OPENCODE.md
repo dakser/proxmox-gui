@@ -21,9 +21,9 @@ servicios** (se descartó claude2 por eso). Se usa un **LXC desechable y dedicad
 - Salida a internet solo hacia lo necesario: GitHub, PyPI, npm, `nodejs.org` y los proveedores de modelos. Si quieres
   endurecer más, el firewall del propio Proxmox puede limitar el tráfico de ese CT hacia tu red (permitir solo el
   `192.168.100.156:8006` del laboratorio y el `192.168.100.160` del portal).
-- Atención: el LXC vive dentro del PVE anidado. **Restaurar el snapshot `pre-pgui` del hipervisor exterior lo borra.**
-  Para reiniciar el laboratorio sin perder el entorno de trabajo, toma un snapshot exterior nuevo con el LXC ya creado
-  (`pre-pgui-dev`) y restaura ese; o crea el LXC en el hipervisor exterior.
+- El LXC dedicado vive **fuera** de `prox-t1` (decisión de Roberto, 2026-11-01): restaurar los snapshots del laboratorio
+  anidado no lo toca. Debe alcanzar `192.168.100.156:8006` y `192.168.100.160` por red; el agente no tiene otra vía hacia
+  el laboratorio.
 - Las credenciales del laboratorio van solo en `~agent/.pgui-lab.env` (modo `0600`, fuera del repositorio):
 
 ```
@@ -108,7 +108,10 @@ dé un resultado distinto al esperado y no sea evidente por qué; o falten crede
 
 ## 7. Dato pendiente para cerrar L-04
 
-Roberto debe ejecutar esto en `prox-t1` (no imprime el secreto y borra el token):
+**Resultado (2026-11-01):** con `PortalAdmin` el token recibe `{"data":[]}`: Proxmox filtra la lista. Hipótesis a confirmar:
+falta `SDN.Use` sobre `/sdn/zones/localnetwork` (desde PVE 8.1, sin `Sys.Modify` solo se ven los bridges con `SDN.Use`). Si se
+confirma, los tokens de equipo también lo necesitan para conectar CT/VM a `vmbr0`; el diseño decide quién lo concede (admin,
+por red y equipo). Comprobación:
 
 ```bash
 SECRET=$(pveum user token add pgui-admin@pve diag --privsep 1 --output-format json | python3 -c 'import sys,json;print(json.load(sys.stdin)["value"])')
