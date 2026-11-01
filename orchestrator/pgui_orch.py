@@ -5,8 +5,8 @@ Comandos:
   init                 Verifica el kit (archivos, autopruebas, manifiesto y tareas) sin tocar nada.
   seal                 Sella el material de aceptación: guarda su huella (hacer dos veces: debe coincidir).
   verify               Comprueba que la huella sellada sigue igual.
-  run [--phase F3]     Ejecuta tareas, puertas y revisiones. Al cerrar cada fase publica su rama y su PR y se detiene
-                       hasta que el humano lo fusione; al relanzar, continúa con la fase siguiente.
+  run [--phase F3]     Ejecuta todas las fases seguidas: tareas, puertas y revisiones. Cada fase aprobada se integra en
+                       integracion/v0.1.1 (nunca en master); al final deja un PR listo. Solo se detiene ante un bloqueo real.
   dry-run              Muestra la secuencia de sesiones sin llamar a ningún agente.
   status               Estado por fase y tarea, gasto acumulado.
   once TAREA           Ejecuta una sola tarea (útil para depurar).
@@ -223,7 +223,20 @@ class Orchestrator:
         if not self.git("diff", "--cached", "--name-only").strip():
             return False
         self.git("commit", "-q", "-m", msg)
+        self.wip_push()
         return True
+
+    def wip_push(self) -> None:
+        """Empuja la rama actual tras cada commit: el trabajo nunca depende de que el LXC siga vivo."""
+        g = self.cfg["git"]
+        if self.dry or not g.get("push_wip", True):
+            return
+        branch = self.git("rev-parse", "--abbrev-ref", "HEAD", check=False).strip()
+        if not branch or branch == g["main_branch"]:
+            return  # nunca se empuja a la rama principal
+        ok, out = self.sh(f"git push -q -u {g.get('remote', 'origin')} {shlex.quote(branch)}", timeout=300, with_secrets=True)
+        if not ok:
+            self.event(f"aviso: no pude empujar {branch}: {tail(out, 3).strip()}")
 
     def commit_reports(self, msg: str) -> bool:
         """Commit only reports/: the gate must not sweep work in progress into its commit."""
@@ -1219,70 +1232,99 @@ class Orchestrator:
         self.event(f"revisión {phase} ({role}): {'APROBADO' if approved else 'RECHAZADO'}")
         return approved, text
 
-    def merged_into_main(self, branch: str) -> bool:
-        """¿La rama ya está en la rama principal remota? (fusión normal, o PR fusionado con squash)."""
-        main, remote = self.cfg["git"]["main_branch"], self.cfg["git"].get("remote", "origin")
-        self.sh(f"git fetch -q {remote}", timeout=300, with_secrets=True)
-        if self.sh(f"git merge-base --is-ancestor {shlex.quote(branch)} {remote}/{main}", timeout=60)[0]:
-            return True
-        ok, out = self.sh(f"gh pr view {shlex.quote(branch)} --json state -q .state", timeout=120, with_secrets=True)
-        return ok and out.strip().splitlines()[0:1] == ["MERGED"]
+    def integration_branch(self) -> str:
+        return self.cfg["git"].get("integration_branch", "integracion/v0.1.1")
 
-    def check_published(self, phase: str) -> None:
-        """Una fase publicada espera la fusión del humano. Si ya se fusionó, la da por cerrada y actualiza la rama principal."""
-        main, remote = self.cfg["git"]["main_branch"], self.cfg["git"].get("remote", "origin")
+    def ensure_integration(self) -> None:
+        """Rama de integración (nunca master): recibe cada fase aprobada. Tiene un PR en borrador hacia master desde el principio,
+        para que el CI corra sobre ella."""
+        g, br = self.cfg["git"], self.integration_branch()
         if self.dry:
-            self.state["phases"][phase]["status"] = "done"
             return
-        if not self.merged_into_main(f"fase/{phase}"):
-            raise Halt(f"ESPERANDO: la fase {phase} está publicada (rama fase/{phase}); fusiona su PR en {main} "
-                       f"(con el CI en verde) y vuelve a lanzar `run`")
-        if self.changed_files():
-            raise Halt(f"hay cambios sin commit tras fusionar {phase}: {self.changed_files()[:10]}")
-        self.git("checkout", "-q", main)
-        self.git("merge", "-q", "--ff-only", f"{remote}/{main}")
-        self.state["phases"][phase]["status"] = "done"
-        self.save()
-        self.event(f"{phase} fusionada en {main}")
-        self.run_hook("snapshot", "PGUI_SNAPSHOT", f"{phase.replace('.', '-')}-ok")
+        if not self.git("branch", "--list", br).strip():
+            self.git("branch", br, g["main_branch"])
+            self.event(f"rama de integración {br} creada desde {g['main_branch']}")
+        if g.get("publish", True) and not self.state.get("pr_opened"):
+            self.sh(f"git push -q -u {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+            body = ("Integración autónoma de v0.1.1 (docs/plan.md). Cada fase aprobada por su puerta y su revisión se fusiona aquí; "
+                    "este PR queda en borrador hasta que terminen todas. **No se fusiona solo.**")
+            pr = ROOT / "reports" / "prompts" / "pr-integracion.md"
+            pr.parent.mkdir(parents=True, exist_ok=True)
+            pr.write_text(body)
+            ok, out = self.sh(f"gh pr create --draft --base {g['main_branch']} --head {br} --title "
+                              f"{shlex.quote('feat: v0.1.1 (integración autónoma)')} --body-file {shlex.quote(str(pr))}",
+                              timeout=300, with_secrets=True)
+            self.event("PR en borrador: " + (tail(out, 2).strip() if ok else "no se pudo abrir (¿ya existe?): " + tail(out, 3)))
+            self.state["pr_opened"] = True
+            self.save()
 
-    def publish(self, phase: str) -> None:
-        """Empuja la rama de la fase y abre su PR. Nada de esto lo hacen los agentes: solo el orquestador."""
-        g = self.cfg["git"]
-        main, remote = g["main_branch"], g.get("remote", "origin")
-        if self.dry or not g.get("publish", True):
+    def integrate(self, phase: str) -> None:
+        """Fusiona fase/Fx en la rama de integración (nunca en master) y la empuja."""
+        g, br = self.cfg["git"], self.integration_branch()
+        if self.dry:
             return
-        ok, out = self.sh(f"git push -u {remote} fase/{phase}", timeout=600, with_secrets=True)
-        if not ok:
-            raise Halt(f"no pude empujar fase/{phase}: {tail(out, 5)}")
-        tasks = [t for t in self.tasks if t.phase == phase]
-        body = (f"Fase {phase} del plan v0.1.1 (docs/plan.md), hecha por el modo autónomo.\n\n"
-                "Tareas (un commit cada una):\n" + "\n".join(f"- {t.id}: {t.title}" for t in tasks) +
-                f"\n\nPuerta: reports/gate-{phase}.json · revisiones: reports/review-*{phase}.md\n"
-                f"Gasto acumulado: {self.state['spend'].get(phase, 0.0):.2f} USD en la fase.\n\n"
-                "Antes de fusionar: CI completo en verde y lectura de las revisiones. No se fusiona solo.")
-        pr = ROOT / "reports" / "prompts" / f"pr-{phase}.md"
-        pr.parent.mkdir(parents=True, exist_ok=True)
-        pr.write_text(body)
-        ok, out = self.sh(f"gh pr create --base {main} --head fase/{phase} --title "
-                          f"{shlex.quote(f'feat: fase {phase} del plan v0.1.1')} --body-file {shlex.quote(str(pr))}",
-                          timeout=300, with_secrets=True)
-        self.event(f"PR de {phase}: {tail(out, 2).strip() if ok else 'no se pudo abrir (¿ya existe?): ' + tail(out, 3)}")
+        self.git("checkout", "-q", br)
+        self.git("merge", "-q", "--no-ff", f"fase/{phase}", "-m", f"Fase {phase} aprobada por puerta y revisión")
+        if g.get("publish", True):
+            ok, out = self.sh(f"git push -q -u {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+            if not ok:
+                raise Halt(f"no pude empujar {br}: {tail(out, 5)}")
+
+    def wait_ci(self, phase: str) -> None:
+        """Espera el CI de la rama de integración. Si falla, una sesión del implementador lo corrige con el registro del fallo."""
+        g, br = self.cfg["git"], self.integration_branch()
+        if self.dry or not g.get("publish", True) or not g.get("wait_ci", True):
+            return
+        lim = self.cfg["limits"]
+        for rnd in range(lim["gate_fix_rounds"] + 1):
+            sha = self.git("rev-parse", "HEAD").strip()
+            deadline = time.time() + int(g.get("ci_timeout_min", 45)) * 60
+            verdict, run_id = "pending", ""
+            while time.time() < deadline:
+                ok, out = self.sh(f"gh run list --branch {shlex.quote(br)} --commit {sha} --json databaseId,status,conclusion",
+                                  timeout=120, with_secrets=True)
+                try:
+                    runs = json.loads(out.strip().splitlines()[-1]) if ok and out.strip() else []
+                except (json.JSONDecodeError, IndexError):
+                    runs = []
+                if runs and all(r.get("status") == "completed" for r in runs):
+                    bad = [r for r in runs if r.get("conclusion") not in ("success", "skipped", "neutral")]
+                    verdict, run_id = ("failure", str(bad[0]["databaseId"])) if bad else ("success", "")
+                    break
+                time.sleep(30)
+            if verdict == "success":
+                self.event(f"CI de {br} en verde tras {phase}")
+                return
+            if verdict == "pending":
+                self.notify(f"aviso: el CI de {br} no terminó en {g.get('ci_timeout_min', 45)} min; sigo sin esperarlo")
+                return
+            if rnd == lim["gate_fix_rounds"]:
+                raise Halt(f"el CI de {br} sigue en rojo tras {phase} ({lim['gate_fix_rounds']} rondas de corrección)")
+            ok, log = self.sh(f"gh run view {shlex.quote(run_id)} --log-failed", timeout=300, with_secrets=True)
+            self.git("checkout", "-q", f"fase/{phase}")
+            self.fix_session(phase, f"{phase}.CI{rnd + 1}", "El CI de GitHub falló sobre la integración:\n" + tail(log, 150))
+            # La corrección vive en la rama de la fase; se integra de nuevo.
+            self.git("checkout", "-q", br)
+            self.git("merge", "-q", "--no-ff", f"fase/{phase}", "-m", f"Fase {phase}: corrección del CI")
+            self.sh(f"git push -q {g.get('remote', 'origin')} {br}", timeout=300, with_secrets=True)
+
+    def finish(self) -> None:
+        """Todas las fases integradas: marca el PR como listo y avisa lo que queda para el humano."""
+        g, br = self.cfg["git"], self.integration_branch()
+        deferred = self.state.get("deferred_lab2", [])
+        todo = (f"Falta el nivel 2 de {', '.join(deferred)}: ejecuta docs/hardening/LAB-RC.md en prox-t1, deja reports/lab2/<fase>.json "
+                "(commit `KIT: nivel 2`) y firma la release. " if deferred else "")
+        if not self.dry and g.get("publish", True):
+            self.sh(f"gh pr ready {shlex.quote(br)}", timeout=120, with_secrets=True)
+        self.notify(f"v0.1.1 lista en {br} (PR listo hacia {g['main_branch']}). {todo}Gasto total "
+                    f"{self.state['spend']['total']:.2f} USD.")
 
     def run_phase(self, phase: str) -> None:
-        main = self.cfg["git"]["main_branch"]
         ps = self.state["phases"].setdefault(phase, {"status": "pending"})
         if ps["status"] == "done":
             return
-        if ps["status"] == "published":
-            self.check_published(phase)
-            return
-        idx = self.phases.index(phase)
-        if idx > 0 and self.state["phases"].get(self.phases[idx - 1], {}).get("status") == "published":
-            self.check_published(self.phases[idx - 1])
-        if idx > 0 and self.state["phases"].get(self.phases[idx - 1], {}).get("status") != "done":
-            raise Halt(f"la fase anterior ({self.phases[idx - 1]}) no está cerrada")
-        branch = f"fase/{phase}"
+        self.ensure_integration()
+        branch, base = f"fase/{phase}", self.integration_branch()
         if not self.dry:
             current = self.git("rev-parse", "--abbrev-ref", "HEAD").strip()
             dirty = self.changed_files()
@@ -1290,7 +1332,7 @@ class Orchestrator:
                 if dirty:
                     raise Halt(f"hay cambios sin commit en {current} antes de {phase}: {dirty[:10]}")
                 exists = self.git("branch", "--list", branch).strip()
-                self.git("checkout", "-q", branch) if exists else self.git("checkout", "-q", "-b", branch, main)
+                self.git("checkout", "-q", branch) if exists else self.git("checkout", "-q", "-b", branch, base)
             elif dirty and ps["status"] == "pending":
                 raise Halt(f"hay cambios sin commit antes de empezar {phase}: {dirty[:10]}")
             # In a running phase, leftover work from a blocked task is kept: the next
@@ -1309,16 +1351,19 @@ class Orchestrator:
             else:
                 self.special_task(task)
         self.close_phase(phase)
-
     def gate_with_fixes(self, phase: str, label: str, quick: bool = True) -> None:
         lim = self.cfg["limits"]
         ok, out = self.run_gate(phase, quick)
         rounds = 0
         while not ok:
             if getattr(self, "pending_human", False):
-                raise Halt(f"ESPERANDO: la puerta de {phase} solo necesita el nivel 2 (lo ejecutas tú): sigue "
-                           f"docs/hardening/LAB-RC.md y deja reports/lab2/{phase}.json con {{\"pass\": true, ...}} "
-                           f"(commit `KIT: nivel 2 de {phase}`); luego relanza `run`")
+                # Solo falta el nivel 2, que ejecuta el humano. No detiene el trabajo: se acumula para el final.
+                deferred = self.state.setdefault("deferred_lab2", [])
+                if phase not in deferred:
+                    deferred.append(phase)
+                    self.save()
+                    self.event(f"el nivel 2 de {phase} queda pendiente para la validación final (LAB-RC.md)")
+                return
             rounds += 1
             if rounds > lim["gate_fix_rounds"]:
                 raise Halt(f"la puerta de {phase} no pasa tras {lim['gate_fix_rounds']} rondas ({label})")
@@ -1401,10 +1446,12 @@ class Orchestrator:
             ok, out = self.sh(f"python3 scripts/lock_check.py {main} HEAD")
             if not ok:
                 raise Halt(f"lock-check falló en {phase}:\n{tail(out, 20)}")
-        self.publish(phase)
-        self.state["phases"][phase]["status"] = "published"
+        self.integrate(phase)
+        self.wait_ci(phase)
+        self.state["phases"][phase]["status"] = "done"
         self.save()
-        self.notify(f"{phase} lista y publicada (rama fase/{phase}); fusiona el PR y relanza `run` "
+        self.run_hook("snapshot", "PGUI_SNAPSHOT", f"{phase.replace('.', '-')}-ok")
+        self.notify(f"{phase} aprobada e integrada en {self.integration_branch()} "
                     f"(gasto acumulado {self.state['spend']['total']:.2f} USD)")
 
     # ---------- commands ----------
@@ -1464,13 +1511,8 @@ class Orchestrator:
                 if only_phase and phase != only_phase:
                     continue
                 self.run_phase(phase)
-            pending = [p for p in self.phases if self.state["phases"].get(p, {}).get("status") != "done"]
-            if only_phase:
-                pass
-            elif pending:
-                self.notify(f"se detiene hasta que fusiones el PR de {pending[0]} (fase publicada); luego relanza `run`")
-            else:
-                self.notify("v0.1.1 lista para la validación humana: todas las fases fusionadas; sigue docs/hardening/LAB-RC.md y firma la release")
+            if not only_phase and all(self.state["phases"].get(p, {}).get("status") == "done" for p in self.phases):
+                self.finish()
             return 0
         except Halt as h:
             self.notify(f"DETENIDO: {h}")

@@ -11,7 +11,7 @@ En el LXC dedicado, como usuario `agent`, tras `orchestrator/setup-lxc.sh`:
 | Qué | Dónde | Notas |
 |---|---|---|
 | Aviso al celular | `[notify] command` de `orchestrator/orchestrator.toml` | Se ejecuta con el mensaje en `$PGUI_MSG` (nunca interpolado). Vacío = solo registro en `orchestrator/logs/`. |
-| Snapshot antes de cada fase | `[snapshot] command` | Se ejecuta con `$PGUI_SNAPSHOT` y las variables de `secrets.env`. Token de Proxmox **restringido a `VM.Snapshot` sobre ese CT**. Vacío = sin snapshots. |
+| Snapshot antes de cada fase | `[snapshot] command` | **Vacío (decisión X25)**: no se da ningún token de Proxmox al LXC. Si quieres puntos de restauración, toma tú el snapshot desde Proxmox, o programa un backup del CT en Proxmox. El código está a salvo porque se empuja tras cada commit. |
 | Secretos del orquestador | `/etc/pgui-orch/secrets.env` (`root:agent`, 0640) | `KEY=VALUE`. Llega solo a `[notify]`, `[snapshot]` y a los comandos `git push`/`gh` del orquestador, nunca a `make check` ni a los agentes (que además tienen vetada la ruta). |
 | Claves de modelos | `OPENROUTER_API_KEY` (clave propia del proyecto, con tope de gasto) en el entorno de `agent`; `opencode auth login`; `claude /login` | No van en ningún archivo del repo. |
 | Credenciales de laboratorio | `~/.pgui-lab.env` (0600) | Formato en `BRIEF-OPENCODE.md` §1. Solo `lab/lib.sh` las lee. |
@@ -33,10 +33,12 @@ python3 orchestrator/pgui_orch.py verify     # ¿cambió el material sellado fue
 python3 orchestrator/pgui_orch.py once F1.2  # una sola tarea (depurar) ; reset F1.2 la devuelve a pendiente
 ```
 
-Ciclo normal: `run` → al cerrar una fase empuja `fase/Fx` y abre su PR → **tú** lo revisas, esperas el CI completo en verde y lo
-fusionas → relanzas `run`, que detecta la fusión, actualiza `master` y sigue con la fase siguiente. Si una puerta solo necesita el
-nivel 2 (fases F3 y F4), se detiene con `ESPERANDO`: ejecutas `docs/hardening/LAB-RC.md` en `prox-t1`, dejas
-`reports/lab2/<fase>.json` con `{"pass": true, …}` en un commit `KIT: nivel 2 de <fase>` y relanzas.
+Ciclo normal: `run` encadena todas las fases solo. Cada fase aprobada (puerta, revisión, `lock-check`) se fusiona en
+`integracion/v0.1.1` —nunca en `master`—, se empuja y espera el CI de GitHub (si falla, el implementador lo corrige). El PR
+`integracion/v0.1.1` → `master` nace en borrador y pasa a listo al terminar. Se detiene solo ante un bloqueo real; relanzar `run`
+retoma donde quedó. Los pasos de nivel 2 (F3 y F4: instalador y actualización en el LXC 200) no detienen nada: quedan
+anotados y, al final, el aviso lista lo que falta. Entonces ejecutas `docs/hardening/LAB-RC.md` de una vez, dejas
+`reports/lab2/<fase>.json` con `{"pass": true, …}` en un commit `KIT: nivel 2`, firmas la release y fusionas.
 
 ## Qué comprueba cada pieza
 

@@ -88,10 +88,14 @@ Roberto con `scripts/release-sign.sh`; el agente nunca ve la clave privada ni cr
    nunca la edita.
 4. Cuando acaban las tareas: puerta rápida (`gate.py Fx --quick`), revisión (revisor y, en F1 a F3, revisor de seguridad) y puerta
    completa (`full`, escenarios de laboratorio de nivel 1 con `lab/run.sh`, métricas). Si algo falla, rondas de corrección.
-5. `lock-check` (ninguna mezcla de pruebas y código, nada del kit tocado) y publicación: el orquestador empuja la rama y
-   abre **un PR por fase** hacia `master` (un commit por tarea). **Se detiene hasta que Roberto lo fusione** con el CI completo
-   en verde; al relanzar, sigue con la fase siguiente. Nadie fusiona solo.
-6. Dependencias solo con `scripts/update-lock.sh` (y `pnpm` con lockfile); nunca editar a mano `requirements.lock`.
+5. `lock-check` (ninguna mezcla de pruebas y código, nada del kit tocado). Después el orquestador fusiona la fase en la rama
+   `integracion/v0.1.1` (nunca en `master`), la empuja y espera el CI de GitHub; si falla, el implementador lo corrige con el
+   registro del fallo. Sigue solo con la fase siguiente. Solo se detiene ante un bloqueo real (tarea bloqueada, presupuesto,
+   revisor que rechaza tras las rondas, límite del proveedor). El trabajo se empuja tras cada commit.
+   Los pasos de **nivel 2** (los que ejecuta Roberto en el LXC 200) no detienen nada: se acumulan para el final.
+6. Al terminar todas las fases: el PR `integracion/v0.1.1` → `master` pasa de borrador a listo y se avisa. Roberto hace una sola
+   validación final (nivel 2 consolidado en `docs/hardening/LAB-RC.md`), firma la release y fusiona. Nadie fusiona solo.
+7. Dependencias solo con `scripts/update-lock.sh` (y `pnpm` con lockfile); nunca editar a mano `requirements.lock`.
 
 ## 5. Prohibido
 

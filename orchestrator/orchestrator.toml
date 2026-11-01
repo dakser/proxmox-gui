@@ -78,7 +78,11 @@ probe_minutes = 60
 [git]
 main_branch = "master"
 remote = "origin"
-publish = true            # al cerrar cada fase: git push de fase/Fx y gh pr create (token de grano fino en secrets.env)
+integration_branch = "integracion/v0.1.1"   # cada fase aprobada se fusiona aquí (nunca en master); PR en borrador hacia master
+publish = true            # empuja ramas y abre/actualiza el PR con gh (token de grano fino en secrets.env)
+push_wip = true           # empuja la rama tras cada commit: el trabajo no depende de que el LXC siga vivo
+wait_ci = true            # tras integrar una fase, espera el CI de GitHub; si falla, el implementador lo corrige
+ci_timeout_min = 45
 author_name = "pgui-orchestrator"
 author_email = "orchestrator@pgui.invalid"
 
