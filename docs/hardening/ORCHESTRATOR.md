@@ -15,11 +15,11 @@ En el LXC dedicado, como usuario `agent`, tras `orchestrator/setup-lxc.sh`:
 | Secretos del orquestador | `/etc/pgui-orch/secrets.env` (`root:agent`, 0640) | `KEY=VALUE`. Llega solo a `[notify]`, `[snapshot]` y a los comandos `git push`/`gh` del orquestador, nunca a `make check` ni a los agentes (que además tienen vetada la ruta). |
 | Claves de modelos | `OPENROUTER_API_KEY` (clave propia del proyecto, con tope de gasto) en el entorno de `agent`; `opencode auth login`; `claude /login` | No van en ningún archivo del repo. |
 | Credenciales de laboratorio | `~/.pgui-lab.env` (0600) | Formato en `BRIEF-OPENCODE.md` §1. Solo `lab/lib.sh` las lee. |
-| GitHub | `gh auth login` con token de grano fino (solo el fork; Contents + Pull requests; sin Workflows) | Sirve a `git push` y `gh pr create` del orquestador. |
+| GitHub | `gh auth login` con token de grano fino (solo el fork; Contents RW, Pull requests RW, Actions R, Metadata R; sin Workflows) | Sirve a `git push` y `gh pr create` del orquestador. |
 
 Límite honesto: el usuario `agent` ejecuta tanto al orquestador como a los agentes, así que `/etc/pgui-orch/secrets.env` es
 legible para el proceso de un agente. Las guardas lo vetan (heurística, no frontera). La frontera real son los **alcances** de
-cada credencial: token de GitHub limitado al fork y sin `Workflows`, clave de OpenRouter con tope, token de Proxmox de un solo CT.
+cada credencial: token de GitHub limitado al fork y sin `Workflows`, clave de OpenRouter con tope, token de laboratorio de Proxmox propio (`pgui-lab-agent@pve!dev`) y sin snapshots.
 
 ## Puesta en marcha
 

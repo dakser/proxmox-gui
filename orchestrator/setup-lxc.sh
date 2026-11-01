@@ -15,7 +15,7 @@ echo "== Paquetes del sistema"
 apt-get update -q
 DEBIAN_FRONTEND=noninteractive apt-get install -yq \
     git curl ca-certificates jq xz-utils build-essential pkg-config perl sqlite3 openssh-client shellcheck \
-    python3 python3-venv make gnupg locales
+    python3 python3-venv make gnupg locales tmux
 sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen >/dev/null
 
 echo "== Usuario agent (sin privilegios, sin sudo)"
