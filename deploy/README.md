@@ -19,7 +19,7 @@ Do **not** pipe the installer into a shell. Download it, verify it, read it, run
 
 ```bash
 REPO=dakser/proxmox-gui        # your fork
-TAG=v0.7.0                     # a published release
+TAG=v0.1.0                     # a published release
 mkdir -p ~/pgui && cd ~/pgui
 curl -fsSLO "https://github.com/$REPO/releases/download/$TAG/install.sh"
 curl -fsSLO "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS"

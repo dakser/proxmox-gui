@@ -98,7 +98,7 @@ Do **not** pipe the installer into a shell. Download `install.sh` and the releas
 signature with your public key, check `install.sh` against `SHA256SUMS`, read it, then run it **on the Proxmox VE 8.x host**:
 
 ```bash
-bash install.sh --release v0.7.0          # see deploy/README.md for the exact verification commands
+bash install.sh --release v0.1.0          # see deploy/README.md for the exact verification commands
 ```
 
 The installer verifies the release (signature + SHA-256) on the host before creating anything, builds an unprivileged LXC
