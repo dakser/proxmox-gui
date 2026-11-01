@@ -108,7 +108,7 @@ dé un resultado distinto al esperado y no sea evidente por qué; o falten crede
 
 ## 7. Dato pendiente para cerrar L-04
 
-**Resultado (2026-11-01):** con `PortalAdmin` el token recibe `{"data":[]}`: Proxmox filtra la lista. Hipótesis a confirmar:
+**Resultado (2026-11-01):** con `PortalAdmin` el token recibe `{"data":[]}`: Proxmox filtra la lista. **Confirmado** (con `PVESDNUser` en `/sdn/zones/localnetwork` para usuario y token aparece `vmbr0`; solo para el token, no). Lo que sigue es el guion usado. Hipótesis original:
 falta `SDN.Use` sobre `/sdn/zones/localnetwork` (desde PVE 8.1, sin `Sys.Modify` solo se ven los bridges con `SDN.Use`). Si se
 confirma, los tokens de equipo también lo necesitan para conectar CT/VM a `vmbr0`; el diseño decide quién lo concede (admin,
 por red y equipo). Comprobación:
