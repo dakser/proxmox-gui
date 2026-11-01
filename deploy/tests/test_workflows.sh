@@ -22,6 +22,7 @@ for f in "$WF"/*.yml; do
     assert_eq "$n_jobs" "$n_pgui" "$(basename "$f"): all jobs run on label pgui"
     n_co="$(grep -c 'Checkout (sin acciones externas)' "$f" || true)"
     assert_eq "$n_co" "$n_jobs" "$(basename "$f"): every job checks out explicitly"
+    # shellcheck disable=SC2016  # comillas simples a propósito: texto literal, no expansión
     assert_contains "$(cat "$f")" 'git remote set-url origin "$SERVER/$REPO.git"' "$(basename "$f"): checkout leaves no token in the remote"
 done
 

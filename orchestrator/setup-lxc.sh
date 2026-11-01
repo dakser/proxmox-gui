@@ -50,10 +50,12 @@ tar -xzf "$tmp/gl.tar.gz" -C /usr/local/bin gitleaks
 
 echo "== Herramientas del usuario agent: uv (Python 3.12), Claude Code, OpenCode"
 su - agent -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'
+# shellcheck disable=SC2016  # comillas simples a propósito: texto literal, no expansión
 su - agent -c 'export PATH="$HOME/.local/bin:$PATH"; uv python install 3.12'
 su - agent -c 'command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash'
 su - agent -c 'command -v opencode >/dev/null || curl -fsSL https://opencode.ai/install | bash'
 grep -q '.opencode/bin' "$AGENT_HOME/.profile" 2>/dev/null || \
+    # shellcheck disable=SC2016  # comillas simples a propósito: texto literal, no expansión
     echo 'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"' >>"$AGENT_HOME/.profile"
 
 cat <<'MSG'
