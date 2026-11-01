@@ -9,6 +9,7 @@ check: selftest
 selftest:
 	lab/selftest.sh
 	python3 scripts/accept_check_selftest.py
+	python3 scripts/gate_selftest.py
 	python3 scripts/guard_selftest.py
 
 # lab: corre un escenario de laboratorio de nivel 1.   make lab SCN=f1_new_user_can_provision

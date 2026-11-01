@@ -61,7 +61,9 @@ build/
 .secrets/
 
 # Informes de puertas y laboratorio, estado del orquestador
-/reports/
+/reports/lab/
+/reports/prompts/
+/reports/mutants/
 orchestrator/state.json
 orchestrator/logs/
 orchestrator/run.log

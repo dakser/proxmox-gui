@@ -1,6 +1,9 @@
 # Puertas por fase (docs/plan.md). Solo las cambia el humano.
 #
 # Una puerta es un examen automático: todos los comandos deben salir con código 0 y las métricas cumplir su umbral.
+# Las métricas (clave = valor) se leen de los JSON que escriben los escenarios de laboratorio (reports/lab/*.json) y, en nivel 2,
+# de reports/lab2/<fase>.json; sufijo _max -> <=, _min -> >=. `review` lista los revisores de la fase (por defecto solo `reviewer`).
+# Lo evalúa scripts/gate.py.
 # `fast` es la puerta de las correcciones; `full` se corre una vez al final de la fase. `regression` se corre en TODAS las
 # puertas. Los comandos se ejecutan desde la raíz del repositorio, con el entorno de desarrollo ya preparado.
 #
@@ -36,7 +39,7 @@ fast = [
   "bash -c 'cd frontend && pnpm audit --prod'",
 ]
 full = ["scripts/check.sh"]
-metrics = { pip_audit_findings = 0, pnpm_audit_prod_findings = 0 }
+review = ["reviewer"]
 
 [phase.F1]
 fast = [
@@ -50,6 +53,7 @@ full = [
 ]
 lab1 = ["lab/scenarios/f1_new_user_can_provision.sh"]
 metrics = { new_user_sees_cluster = true, session_survives_full_reload_after_expiry = true }
+review = ["reviewer", "security_reviewer"]
 
 [phase.F2]
 fast = [
@@ -66,6 +70,7 @@ lab1 = [
   "lab/scenarios/f2_full_provision.sh",
 ]
 metrics = { undocumented_privileges_needed = 0 }
+review = ["reviewer", "security_reviewer"]
 
 [phase.F3]
 fast = [
@@ -80,6 +85,7 @@ lab2 = ["docs/hardening/LAB-RC.md"]
 # La puntuación de sandbox no puede empeorar (R-25). El tamaño del tarball se compara con el de v0.1.0 medido en la misma
 # corrida (no contra un número fijo) y debe ser menor.
 metrics = { systemd_security_score_max = 1.5, tarball_smaller_than_v010 = true }
+review = ["reviewer", "security_reviewer"]
 
 [phase.F4]
 full = [

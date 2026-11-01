@@ -2,6 +2,10 @@
 """Comprueba que las pruebas de aceptación del manifiesto existen (tests/acceptance/manifest.toml).
 
 Uso:  scripts/accept_check.py <fase>     p. ej. F1: exige las pruebas de F0 y F1
+      scripts/accept_check.py <fase> --mutations [--task F1.2]
+                                          exige que docs/BLOCKERS.md tenga una línea
+                                          "MUTACIÓN <prueba>: detectada" por cada prueba py/ts/sh
+                                          (de la tarea indicada, o de todas hasta la fase)
       scripts/accept_check.py --list
 Sale con 1 si falta un archivo, si el nombre no aparece en el archivo o si una entrada no declara regla/prueba/mutación.
 Esto impide que una prueba renombrada o borrada cuente como aprobada. Es parte del kit: los agentes no lo editan.
@@ -49,6 +53,20 @@ def check(tests: list[dict], phase: str, root: Path) -> list[str]:
     return errors
 
 
+def mutation_errors(tests: list[dict], phase: str, task: str | None, blockers: str) -> list[str]:
+    upto = PHASES.index(phase)
+    errors = []
+    for t in tests:
+        if t.get("kind") not in ("py", "ts", "sh") or not t.get("task") or PHASES.index(t["phase"]) > upto:
+            continue
+        if task and t.get("task") != task:
+            continue
+        if not re.search(r"^\s*[-*]?\s*MUTACI[ÓO]N\s+" + re.escape(t["name"]) + r"\s*:\s*detectada\b", blockers, re.M):
+            errors.append(f"{t['name']}: falta 'MUTACIÓN {t['name']}: detectada' en docs/BLOCKERS.md "
+                          f"(mutación: {t['mutation']})")
+    return errors
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -62,6 +80,10 @@ def main() -> int:
         print(f"fase desconocida: {sys.argv[1]}")
         return 2
     errors = check(tests, sys.argv[1], ROOT)
+    if "--mutations" in sys.argv:
+        task = sys.argv[sys.argv.index("--task") + 1] if "--task" in sys.argv else None
+        bl = ROOT / "docs" / "BLOCKERS.md"
+        errors += mutation_errors(tests, sys.argv[1], task, bl.read_text() if bl.exists() else "")
     for e in errors:
         print("accept_check:", e)
     if errors:

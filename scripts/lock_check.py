@@ -20,9 +20,9 @@ ACCEPTANCE = ("tests/acceptance/", "backend/tests/acceptance/", "frontend/tests/
 # SÍ los toca el implementador; los del kit y la firma de releases, no.
 FROZEN = ("docs/spec/", "docs/plan.md", "orchestrator/", ".claude/", ".opencode/", "opencode.json",
           "AGENTS.md", "CLAUDE.md", "Makefile", ".github/", ".gitleaks.toml",
-          "scripts/gate.py", "scripts/lock_check.py", "scripts/accept_check.py", "scripts/accept_check_selftest.py", "scripts/guard_selftest.py",
+          "scripts/gate.py", "scripts/gate_selftest.py", "scripts/lock_check.py", "scripts/accept_check.py", "scripts/accept_check_selftest.py", "scripts/guard_selftest.py",
           "scripts/release-sign.sh", "deploy/release-signers",
-          "lab/lib.sh", "lab/run.sh", "lab/selftest.sh", "lab/selftest/")
+          "lab/lib.sh", "lab/run.sh", "lab/selftest.sh", "lab/selftest/", "reports/lab2/")
 NEUTRAL = ("docs/", "reports/", "README.md", "CHANGELOG.md")
 TEST_AUTHOR_EXTRA = ()  # el autor de pruebas solo escribe material de aceptación y la bitácora de docs/
 

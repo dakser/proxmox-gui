@@ -52,6 +52,7 @@ mutation = "Quitar la comprobación del código de salida, el borrado del inform
 
 [[test]]
 name = "test_lock_has_no_known_vulns"
+task = "F0.1"
 phase = "F0"
 kind = "gate"
 files = ["gates.toml"]
@@ -62,6 +63,7 @@ mutation = "Fijar certifi a 2026.7.22 en el lock y comprobar que la puerta F0 fa
 # ── F1 ──────────────────────────────────────────────────────────────────────────────────────────
 [[test]]
 name = "test_ssr_refreshes_expired_access_cookie"
+task = "F1.1"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/session.test.ts"]
@@ -71,6 +73,7 @@ mutation = "Quitar la rama de renovación de hooks.server.ts"
 
 [[test]]
 name = "test_ssr_redirects_when_refresh_expired_or_idle"
+task = "F1.1"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/session.test.ts"]
@@ -80,6 +83,7 @@ mutation = "Renovar siempre, sin mirar caducidad ni inactividad"
 
 [[test]]
 name = "test_refresh_rotates_single_use"
+task = "F1.1"
 phase = "F1"
 kind = "py"
 files = ["backend/tests/acceptance/test_session.py"]
@@ -89,6 +93,7 @@ mutation = "Permitir reutilizar el refresh"
 
 [[test]]
 name = "test_create_user_bootstraps_all_active_clusters"
+task = "F1.2"
 phase = "F1"
 kind = "py"
 files = ["backend/tests/acceptance/test_bootstrap.py"]
@@ -98,6 +103,7 @@ mutation = "Volver a no hacer bootstrap al crear el usuario"
 
 [[test]]
 name = "test_create_user_rolls_back_on_pve_failure"
+task = "F1.2"
 phase = "F1"
 kind = "py"
 files = ["backend/tests/acceptance/test_bootstrap.py"]
@@ -107,6 +113,7 @@ mutation = "Quitar la limpieza en Proxmox (el doble debe quedar con restos)"
 
 [[test]]
 name = "test_backfill_is_idempotent_and_exposed_in_ui"
+task = "F1.2"
 phase = "F1"
 kind = "py"
 files = ["backend/tests/acceptance/test_bootstrap.py", "frontend/tests/acceptance/cluster-backfill.test.ts"]
@@ -116,6 +123,7 @@ mutation = "Crear un pool nuevo en cada ejecución; quitar el botón de la ficha
 
 [[test]]
 name = "test_wizard_defaults_to_team_with_token"
+task = "F1.3"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/wizard.test.ts"]
@@ -125,6 +133,7 @@ mutation = "Volver al equipo personal por defecto"
 
 [[test]]
 name = "test_create_button_disabled_with_reason"
+task = "F1.3"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/wizard.test.ts"]
@@ -134,6 +143,7 @@ mutation = "Dejar el botón activo y salir en silencio de submit()"
 
 [[test]]
 name = "test_create_error_shows_detail"
+task = "F1.3"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/wizard.test.ts"]
@@ -143,6 +153,7 @@ mutation = "Volver al mensaje genérico de mapLxcCreateError"
 
 [[test]]
 name = "test_team_members_tab_lists_and_edits"
+task = "F1.4"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/team-members.test.ts"]
@@ -152,6 +163,7 @@ mutation = "Volver al texto de desarrollo"
 
 [[test]]
 name = "test_setup_and_login_make_no_failing_requests"
+task = "F1.5"
 phase = "F1"
 kind = "ts"
 files = ["frontend/tests/acceptance/setup-login.test.ts"]
@@ -161,6 +173,7 @@ mutation = "Volver a pedir /api/v1/admin/settings/ sin sesión"
 
 [[test]]
 name = "f1_new_user_can_provision"
+task = "F1.0"
 phase = "F1"
 kind = "lab"
 files = ["lab/scenarios/f1_new_user_can_provision.sh"]
@@ -171,6 +184,7 @@ mutation = "Deshacer el bootstrap al crear usuario: el escenario debe fallar por
 # ── F2 ──────────────────────────────────────────────────────────────────────────────────────────
 [[test]]
 name = "test_list_bridges_logs_and_reports_read_failure"
+task = "F2.1"
 phase = "F2"
 kind = "py"
 files = ["backend/tests/acceptance/test_networks.py"]
@@ -180,6 +194,7 @@ mutation = "Volver a except Exception: continue sin registro"
 
 [[test]]
 name = "test_network_picker_lists_vmbr0_with_documented_role"
+task = "F2.1"
 phase = "F2"
 kind = "py"
 files = ["backend/tests/acceptance/test_networks.py"]
@@ -189,6 +204,7 @@ mutation = "Quitar SDN.Use del rol documentado: el doble devuelve lista vacía y
 
 [[test]]
 name = "test_bootstrap_failure_is_logged_at_error"
+task = "F2.2"
 phase = "F2"
 kind = "py"
 files = ["backend/tests/acceptance/test_cluster_register.py"]
@@ -198,6 +214,7 @@ mutation = "Quitar el registro"
 
 [[test]]
 name = "test_fingerprint_disables_chain_check_or_explains"
+task = "F2.3"
 phase = "F2"
 kind = "py"
 files = ["backend/tests/acceptance/test_cluster_register.py"]
@@ -207,6 +224,7 @@ mutation = "Ignorar la huella cuando verify_ssl es verdadero, sin mensaje"
 
 [[test]]
 name = "test_unverified_tls_without_fingerprint_warns"
+task = "F2.3"
 phase = "F2"
 kind = "ts"
 files = ["frontend/tests/acceptance/cluster-form.test.ts"]
@@ -216,6 +234,7 @@ mutation = "Aceptar verify_ssl=false sin huella y sin advertencia"
 
 [[test]]
 name = "test_policy_rejection_message_is_not_a_network_error"
+task = "F2.4"
 phase = "F2"
 kind = "ts"
 files = ["frontend/tests/acceptance/cluster-form.test.ts"]
@@ -225,6 +244,7 @@ mutation = "Tratar el 422 como fallo de red"
 
 [[test]]
 name = "f2_networks_listed"
+task = "F2.0"
 phase = "F2"
 kind = "lab"
 files = ["lab/scenarios/f2_networks_listed.sh"]
@@ -234,6 +254,7 @@ mutation = "Registrar el clúster con el rol sin SDN.Use: la lista queda vacía 
 
 [[test]]
 name = "f2_full_provision"
+task = "F2.0"
 phase = "F2"
 kind = "lab"
 files = ["lab/scenarios/f2_full_provision.sh"]
@@ -244,6 +265,7 @@ mutation = "Quitar un privilegio de la lista documentada: el escenario debe fall
 # ── F3 ──────────────────────────────────────────────────────────────────────────────────────────
 [[test]]
 name = "test_install_no_sshd"
+task = "F3.1"
 phase = "F3"
 kind = "sh"
 files = ["deploy/tests/acceptance/test_install_no_sshd.sh"]
@@ -253,6 +275,7 @@ mutation = "Quitar la deshabilitación"
 
 [[test]]
 name = "test_setup_token_removed_after_admin"
+task = "F3.2"
 phase = "F3"
 kind = "py"
 files = ["backend/tests/acceptance/test_setup_token.py"]
@@ -262,6 +285,7 @@ mutation = "No tocar el archivo"
 
 [[test]]
 name = "test_bootstrap_locale_and_caddy"
+task = "F3.3"
 phase = "F3"
 kind = "sh"
 files = ["deploy/tests/acceptance/test_bootstrap_locale_and_caddy.sh"]
@@ -271,6 +295,7 @@ mutation = "Quitar cualquiera de los dos"
 
 [[test]]
 name = "test_tarball_has_no_dev_deps"
+task = "F3.5"
 phase = "F3"
 kind = "sh"
 files = ["deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh"]
