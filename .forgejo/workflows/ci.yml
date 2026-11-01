@@ -133,7 +133,7 @@ jobs:
         run: gitleaks detect --source . --no-banner --redact --config .gitleaks.toml
       - name: bandit + pip-audit
         run: |
-          uv pip install bandit pip-audit uv
+          uv pip install "bandit==1.9.4" "pip-audit==2.10.1"
           bandit -q -r backend/app --severity-level medium
           pip-audit -r backend/requirements.lock --no-deps --disable-pip
       - name: pnpm audit (production dependencies)
