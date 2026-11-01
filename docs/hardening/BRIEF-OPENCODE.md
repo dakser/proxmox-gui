@@ -1,4 +1,4 @@
-# Instrucciones para OpenCode (implementador en claude2)
+# Instrucciones para OpenCode (implementador en un LXC dedicado)
 
 Este documento complementa a `V0.1.1-PLAN.md` (qué hacer) y a `CLAUDE.md` (reglas del proyecto). Para trabajo autónomo
 con acceso al laboratorio, **prevalece sobre `AUTONOMY.md`**, que se escribió para una máquina desechable sin acceso a
@@ -6,13 +6,25 @@ infraestructura.
 
 ## 1. Antes de empezar: aislar al agente
 
-claude2 **no es una máquina desechable**. Un agente autónomo escribe código y ejecuta comandos, así que el aislamiento
-es la barrera contra un error o contra contenido malicioso dentro del repositorio o de una dependencia.
+Un agente autónomo escribe código y ejecuta comandos, así que el aislamiento es la barrera contra un error o contra
+contenido malicioso dentro del repositorio o de una dependencia. **No se ejecuta en una máquina que ya tenga otros
+servicios** (se descartó claude2 por eso). Se usa un **LXC desechable y dedicado** a este proyecto:
 
-- Ejecuta OpenCode con el usuario sin privilegios (`dakser`), nunca como root y sin `sudo` sin contraseña.
-- Que ese usuario **no tenga** claves SSH hacia nodos Proxmox de producción ni tokens de otros servicios. Usa un
-  directorio de trabajo propio (`~/work/proxmox-gui`), no tu carpeta personal ni la de otros proyectos.
-- Las credenciales del laboratorio van solo en `~/.pgui-lab.env` (modo `0600`, fuera del repositorio):
+- **Sin privilegios** (`unprivileged`), sin `nesting`, sin `keyctl`, sin puntos de montaje del host ni dispositivos.
+  4 vCPU, 8 GB de RAM y 40 GB de disco bastan. Debian 12 con Python 3.12, Node 22, `pnpm`, `uv`, `shellcheck`, `sqlite3`,
+  `gitleaks`, `openssh-client` y `git`; OpenCode y Claude Code, instalados para un usuario **sin privilegios**
+  (`agent`), sin `sudo`.
+- **Instantánea antes de cada fase** (`pct snapshot`), y aviso en cada parada. Lo que se pierde al revertir es solo el
+  entorno: el trabajo vive en el fork de GitHub (ramas y PR), así que se empuja a menudo.
+- **Sin** claves SSH hacia nodos Proxmox, ni tokens de otros servicios, ni la clave privada de firma de releases.
+  Acceso a GitHub con un token de grano fino limitado al fork (`Contents` y `Pull requests`, sin `Workflows`).
+- Salida a internet solo hacia lo necesario: GitHub, PyPI, npm, `nodejs.org` y los proveedores de modelos. Si quieres
+  endurecer más, el firewall del propio Proxmox puede limitar el tráfico de ese CT hacia tu red (permitir solo el
+  `192.168.100.156:8006` del laboratorio y el `192.168.100.160` del portal).
+- Atención: el LXC vive dentro del PVE anidado. **Restaurar el snapshot `pre-pgui` del hipervisor exterior lo borra.**
+  Para reiniciar el laboratorio sin perder el entorno de trabajo, toma un snapshot exterior nuevo con el LXC ya creado
+  (`pre-pgui-dev`) y restaura ese; o crea el LXC en el hipervisor exterior.
+- Las credenciales del laboratorio van solo en `~agent/.pgui-lab.env` (modo `0600`, fuera del repositorio):
 
 ```
 PGUI_LAB_PVE_URL=https://192.168.100.156:8006
@@ -31,6 +43,12 @@ PGUI_LAB_ADMIN_PASSWORD=...
 - Sin acceso `pct exec` ni SSH root al nodo para el agente. Lo que haga falta ejecutar ahí lo prepara el agente y lo
   ejecuta Roberto (ver nivel 2).
 
+**Reparto de roles** (esquema de proyectos autónomos): OpenCode implementa y escribe las pruebas de aceptación (el
+implementador no toca `tests/acceptance/` ni `lab/scenarios/` una vez sellados); otro modelo revisa el diff contra
+`docs/spec/v0.1.1.md`; **Claude Code** hace la revisión de seguridad de las fases con más superficie (F1, F2 y F3). El
+coordinador (el programa que reparte tareas, corre `gates.toml` y avisa) es el de fusiond, adaptado; aún no está en este
+repositorio.
+
 ## 2. Hechos del laboratorio (no son secretos)
 
 | | |
@@ -45,15 +63,15 @@ PGUI_LAB_ADMIN_PASSWORD=...
 
 ## 3. Dos niveles de verificación
 
-**Nivel 1 — pila de desarrollo en claude2 contra `prox-t1` (el agente lo hace solo).**
-Backend y frontend corren en claude2 con una base SQLite y un `master.key` temporales (en un directorio efímero), y el
+**Nivel 1 — pila de desarrollo en el LXC dedicado contra `prox-t1` (el agente lo hace solo).**
+Backend y frontend corren en el LXC dedicado con una base SQLite y un `master.key` temporales (en un directorio efímero), y el
 clúster del laboratorio se registra con el token del agente. Sirve para L-01 a L-09, L-12, L-14 y casi todo M-xx.
 Cada comprobación deja evidencia (petición, código de estado, objeto creado en Proxmox) en `docs/hardening/LAB-RESULTS.md`,
 **sin secretos**. Al terminar una prueba, el agente limpia lo que creó en Proxmox (pools, usuarios `gui-team-*`, CT, VM).
 
 **Nivel 2 — release candidate en el LXC 200 (lo ejecuta Roberto).**
 Lo que depende de systemd, del instalador o del contenedor real (L-10, L-11, L-13, L-15, M-05) no se puede dar por bueno
-en claude2. El agente deja un guion corto y comentado en `docs/hardening/LAB-RC.md` con los comandos exactos, y Roberto
+en el LXC dedicado. El agente deja un guion corto y comentado en `docs/hardening/LAB-RC.md` con los comandos exactos, y Roberto
 los ejecuta en `prox-t1` tras un snapshot, y devuelve la salida. Las releases `v0.1.1-rcN` son **prereleases** que firma
 Roberto con `scripts/release-sign.sh`; el agente nunca ve la clave privada ni crea etiquetas `v*`.
 
@@ -75,10 +93,10 @@ Roberto con `scripts/release-sign.sh`; el agente nunca ve la clave privada ni cr
 ## 5. Prohibido
 
 - Debilitar un control del endurecimiento: firma de releases (`deploy/release-signers`, `install.sh`), usuarios y
-  permisos separados, directivas de `deploy/systemd/*`, CSP del `Caddyfile.template`, política de destinos
+  permisos separados, directivas de `deploy/systemd/*`, CSP de `deploy/caddy/Caddyfile.template`, política de destinos
   (`target_policy.py`), límite de intentos del setup, privilegios separados de los tokens por equipo.
 - Editar `.planning/*` a mano; usar `--no-verify`; reescribir historia publicada; empujar a `master`.
-- Crear etiquetas `v*`, releases o tocar claves de firma. Ejecutar `install.sh` en claude2.
+- Crear etiquetas `v*`, releases o tocar claves de firma. Ejecutar `install.sh` fuera del laboratorio.
 - Añadir una cuenta con privilegios amplios en Proxmox ("super-token") para esquivar un permiso que falta: el permiso
   que falta se **identifica y se documenta** (L-05), no se esquiva.
 
@@ -105,7 +123,7 @@ Si devuelve `{"data":[]}`, Proxmox filtra la lista para ese token (probable falt
 
 ## 8. Prompt de arranque
 
-> Lee `CLAUDE.md`, `docs/hardening/V0.1.1-PLAN.md` y `docs/hardening/BRIEF-OPENCODE.md`. Trabaja el plan de v0.1.1 en el
-> orden de la sección 3 del plan, empezando por L-00. Un PR por punto, con prueba que falle primero. No toques secretos
-> ni etiquetas `v*`; no debilites el endurecimiento. Deja la evidencia de laboratorio en `docs/hardening/LAB-RESULTS.md`
-> sin secretos, y para en cada punto de la sección 6 del brief.
+> Lee `AGENTS.md`, `CLAUDE.md`, `docs/spec/v0.1.1.md`, `docs/plan.md`, `gates.toml` y `docs/hardening/BRIEF-OPENCODE.md`.
+> Trabaja el plan por fases, empezando por F0. Un PR por punto, con la prueba de aceptación escrita antes que el código y su
+> mutación anotada en `docs/BLOCKERS.md`. No toques secretos ni etiquetas `v*`; no debilites el endurecimiento. Deja la
+> evidencia de laboratorio en `docs/hardening/LAB-RESULTS.md` sin secretos, y para en cada punto de la sección 6.
