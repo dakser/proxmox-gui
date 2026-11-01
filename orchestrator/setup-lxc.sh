@@ -7,7 +7,7 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "Ejecuta como root." >&2; exit 1; }
 
-NODE_VERSION="${NODE_VERSION:-22.11.0}"          # LTS 22; ajusta si cambia la del proyecto (frontend/package.json "engines")
+NODE_VERSION="${NODE_VERSION:-22.23.3}"         # el mismo que deploy/pins.env; si cambia allí, cámbialo aquí (frontend/package.json "engines")
 GITLEAKS_VERSION="${GITLEAKS_VERSION:-8.21.2}"
 AGENT_HOME=/home/agent
 
@@ -54,9 +54,10 @@ su - agent -c 'curl -fsSL https://astral.sh/uv/install.sh | sh'
 su - agent -c 'export PATH="$HOME/.local/bin:$PATH"; uv python install 3.12'
 su - agent -c 'command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash'
 su - agent -c 'command -v opencode >/dev/null || curl -fsSL https://opencode.ai/install | bash'
-grep -q '.opencode/bin' "$AGENT_HOME/.profile" 2>/dev/null || \
+if ! grep -q '.opencode/bin' "$AGENT_HOME/.profile" 2>/dev/null; then
     # shellcheck disable=SC2016  # comillas simples a propósito: texto literal, no expansión
     echo 'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"' >>"$AGENT_HOME/.profile"
+fi
 
 cat <<'MSG'
 
