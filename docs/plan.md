@@ -2,8 +2,9 @@
 
 Cada fase tiene objetivo, qué leer, tareas, **pruebas con nombre** (y la mutación que las haría fallar) y salida. Solo el
 humano cambia este plan. Las pruebas de aceptación viven en `backend/tests/acceptance/` y `frontend/tests/acceptance/`
-(o `deploy/tests/` para el instalador); las escribe el autor de pruebas **antes** del código y el implementador no las
-toca. Las puertas están en `gates.toml`. El inventario con evidencia está en `docs/hardening/V0.1.1-PLAN.md`.
+(o `deploy/tests/acceptance/` para el instalador); las escribe el autor de pruebas **antes** del código y el implementador no las
+toca. Las puertas están en `gates.toml`; `tests/acceptance/manifest.toml` lista cada prueba con su regla, lo que demuestra y su mutación,
+y `scripts/accept_check.py` exige que existan con ese nombre exacto. El inventario con evidencia está en `docs/hardening/V0.1.1-PLAN.md`.
 
 Línea base: la suite existente completa entra en todas las puertas como regresión (backend `pytest -q`, frontend
 `pnpm check && pnpm test && pnpm build`, `scripts/check.sh`, `deploy/tests/run.sh`).
@@ -67,8 +68,9 @@ Línea base: la suite existente completa entra en todas las puertas como regresi
   `backend/app/setup/routes.py`.
 - **Tareas:** deshabilitar sshd sin community-scripts; invalidar el token de setup; locale; `skip_install_trust` de Caddy; texto
   del panel SSH; tarball solo con dependencias de ejecución.
-- **Pruebas:** `deploy/tests/test_install_no_sshd.sh` (R-21), `test_setup_token_removed_after_admin.py` (R-22),
-  `deploy/tests/test_bootstrap_locale_and_caddy.sh` (R-23), `deploy/tests/test_tarball_has_no_dev_deps.sh` (R-24). Mutación de
+- **Pruebas:** `deploy/tests/acceptance/test_install_no_sshd.sh` (R-21), `backend/tests/acceptance/test_setup_token.py`
+  (`test_setup_token_removed_after_admin`, R-22), `deploy/tests/acceptance/test_bootstrap_locale_and_caddy.sh` (R-23),
+  `deploy/tests/acceptance/test_tarball_has_no_dev_deps.sh` (R-24). Mutación de
   cada una: revertir el cambio → debe fallar.
 - **Salida:** `smoke-systemd` en verde con las pruebas nuevas; nivel 2 (humano) en el LXC 200. Reglas: R-21 … R-24, R-25.
 

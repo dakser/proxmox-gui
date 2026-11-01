@@ -1,0 +1,64 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "share": "disabled",
+  "autoupdate": false,
+  "permission": {
+    "*": "allow",
+    "external_directory": "deny",
+    "edit": {
+      "*": "allow",
+      "*docs/spec/*": "deny",
+      "*docs/plan.md": "deny",
+      "*gates.toml": "deny",
+      "*Makefile": "deny",
+      "*orchestrator/*": "deny",
+      "*.claude/*": "deny",
+      "*.opencode/*": "deny",
+      "*.github/*": "deny",
+      "*AGENTS.md": "deny",
+      "*CLAUDE.md": "deny",
+      "*opencode.json": "deny",
+      "*tests/acceptance/manifest.toml": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "git commit*": "deny",
+      "git push*": "deny",
+      "git merge*": "deny",
+      "git rebase*": "deny",
+      "git reset*": "deny",
+      "git checkout*": "deny",
+      "git switch*": "deny",
+      "git tag*": "deny",
+      "git stash*": "deny",
+      "git cherry-pick*": "deny",
+      "git revert*": "deny",
+      "git config*": "deny",
+      "gh pr merge*": "deny",
+      "gh pr create*": "deny",
+      "gh release*": "deny",
+      "gh repo*": "deny",
+      "git add*": "deny",
+      "git rm*": "deny",
+      "git clean*": "deny",
+      "printenv*": "deny",
+      "env": "deny"
+    },
+    "webfetch": "allow"
+  },
+  "provider": {
+    "opencode-go": {
+      "options": {
+        "chunkTimeout": 180000
+      }
+    },
+    "openrouter": {
+      "options": {
+        "chunkTimeout": 180000
+      }
+    }
+  }
+}

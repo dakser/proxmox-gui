@@ -18,13 +18,19 @@ fast = [
   "bash -c 'cd backend && pytest -q -x'",
   "bash -c 'cd frontend && pnpm check && pnpm test'",
   "deploy/tests/run.sh",
+  "deploy/tests/acceptance/run.sh",
+  "python3 scripts/accept_check_selftest.py",
+  "python3 scripts/lock_check.py master",
 ]
 secrets = [
   "gitleaks detect --no-banner --redact --config .gitleaks.toml",
 ]
 
 [phase.F0]
+# test_lock_has_no_known_vulns: lo mide esta puerta (pip-audit y pnpm audit sobre los locks).
 fast = [
+  "python3 scripts/accept_check.py F0",
+  "lab/selftest.sh",
   "pip-audit -r backend/requirements.lock --no-deps --disable-pip",
   "bandit -q -r backend/app --severity-level medium",
   "bash -c 'cd frontend && pnpm audit --prod'",
@@ -34,6 +40,7 @@ metrics = { pip_audit_findings = 0, pnpm_audit_prod_findings = 0 }
 
 [phase.F1]
 fast = [
+  "python3 scripts/accept_check.py F1",
   "bash -c 'cd backend && pytest -q tests/acceptance -k \"session or bootstrap or wizard or team\"'",
   "bash -c 'cd frontend && pnpm test -- tests/acceptance'",
 ]
@@ -46,6 +53,7 @@ metrics = { new_user_sees_cluster = true, session_survives_full_reload_after_exp
 
 [phase.F2]
 fast = [
+  "python3 scripts/accept_check.py F2",
   "bash -c 'cd backend && pytest -q tests/acceptance -k \"network or bridge or bootstrap or fingerprint or policy\"'",
   "bash -c 'cd frontend && pnpm test -- tests/acceptance'",
 ]
@@ -60,7 +68,10 @@ lab1 = [
 metrics = { undocumented_privileges_needed = 0 }
 
 [phase.F3]
-fast = ["deploy/tests/run.sh test_install_no_sshd.sh test_bootstrap_locale_and_caddy.sh test_tarball_has_no_dev_deps.sh"]
+fast = [
+  "python3 scripts/accept_check.py F3",
+  "deploy/tests/acceptance/run.sh",
+]
 full = [
   "deploy/tests/run.sh",
   "bash -c 'cd backend && pytest -q'",
@@ -72,6 +83,7 @@ metrics = { systemd_security_score_max = 1.5, tarball_smaller_than_v010 = true }
 
 [phase.F4]
 full = [
+  "python3 scripts/accept_check.py F4",
   "scripts/check.sh",
   "bash -c 'cd backend && pytest -q'",
   "bash -c 'cd frontend && pnpm check && pnpm test && pnpm build'",
